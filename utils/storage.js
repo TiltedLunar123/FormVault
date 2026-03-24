@@ -1,0 +1,244 @@
+/**
+ * FormVault — Shared Storage Helpers
+ * All data stored in chrome.storage.local. Zero network requests.
+ */
+
+const FormVaultStorage = (() => {
+  const STORAGE_KEY = 'forms';
+  const SETTINGS_KEY = 'settings';
+  const QUOTA_WARNING_THRESHOLD = 0.8; // 80% of 10MB
+  const MAX_BYTES = 10 * 1024 * 1024; // 10MB limit
+
+  // Default settings
+  const DEFAULT_SETTINGS = {
+    autoSaveEnabled: true,
+    showRestoreToast: true,
+    blocklist: '',
+    retentionDays: 30
+  };
+
+  /**
+   * Get all saved forms
+   * @returns {Promise<Object>} All saved form entries keyed by pageKey
+   */
+  async function getAllForms() {
+    const result = await chrome.storage.local.get(STORAGE_KEY);
+    return result[STORAGE_KEY] || {};
+  }
+
+  /**
+   * Get saved form data for a specific page key
+   * @param {string} pageKey - The unique key for the page
+   * @returns {Promise<Object|null>} The saved form data or null
+   */
+  async function getForm(pageKey) {
+    const forms = await getAllForms();
+    return forms[pageKey] || null;
+  }
+
+  /**
+   * Save form data for a specific page key
+   * @param {string} pageKey - The unique key for the page
+   * @param {Object} formData - The form data to save
+   * @returns {Promise<void>}
+   */
+  async function saveForm(pageKey, formData) {
+    const forms = await getAllForms();
+    forms[pageKey] = {
+      ...formData,
+      savedAt: Date.now()
+    };
+    await chrome.storage.local.set({ [STORAGE_KEY]: forms });
+  }
+
+  /**
+   * Delete a specific saved form
+   * @param {string} pageKey - The unique key for the page
+   * @returns {Promise<void>}
+   */
+  async function deleteForm(pageKey) {
+    const forms = await getAllForms();
+    delete forms[pageKey];
+    await chrome.storage.local.set({ [STORAGE_KEY]: forms });
+  }
+
+  /**
+   * Delete all saved forms
+   * @returns {Promise<void>}
+   */
+  async function deleteAllForms() {
+    await chrome.storage.local.set({ [STORAGE_KEY]: {} });
+  }
+
+  /**
+   * Search forms by title, URL, or field content
+   * @param {string} query - Search query string
+   * @returns {Promise<Object>} Matching form entries
+   */
+  async function searchForms(query) {
+    const forms = await getAllForms();
+    if (!query || !query.trim()) return forms;
+
+    const lowerQuery = query.toLowerCase().trim();
+    const results = {};
+
+    for (const [key, form] of Object.entries(forms)) {
+      // Search in title
+      if (form.title && form.title.toLowerCase().includes(lowerQuery)) {
+        results[key] = form;
+        continue;
+      }
+      // Search in URL
+      if (form.url && form.url.toLowerCase().includes(lowerQuery)) {
+        results[key] = form;
+        continue;
+      }
+      // Search in field labels and values
+      if (form.fields && form.fields.some(field =>
+        (field.label && field.label.toLowerCase().includes(lowerQuery)) ||
+        (field.value && field.value.toLowerCase().includes(lowerQuery))
+      )) {
+        results[key] = form;
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Delete forms older than the specified number of days
+   * @param {number} days - Maximum age in days
+   * @returns {Promise<number>} Number of forms deleted
+   */
+  async function pruneOldForms(days) {
+    if (days <= 0) return 0;
+    const forms = await getAllForms();
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+    let deleted = 0;
+
+    for (const [key, form] of Object.entries(forms)) {
+      if (form.savedAt < cutoff) {
+        delete forms[key];
+        deleted++;
+      }
+    }
+
+    if (deleted > 0) {
+      await chrome.storage.local.set({ [STORAGE_KEY]: forms });
+    }
+    return deleted;
+  }
+
+  /**
+   * Auto-prune oldest entries when storage is near quota
+   * @returns {Promise<number>} Number of forms pruned
+   */
+  async function pruneIfNearQuota() {
+    const bytesUsed = await chrome.storage.local.getBytesInUse(null);
+    if (bytesUsed < MAX_BYTES * QUOTA_WARNING_THRESHOLD) return 0;
+
+    const forms = await getAllForms();
+    const entries = Object.entries(forms).sort((a, b) => a[1].savedAt - b[1].savedAt);
+    let pruned = 0;
+
+    // Remove oldest 20% of entries
+    const toRemove = Math.max(1, Math.ceil(entries.length * 0.2));
+    for (let i = 0; i < toRemove && i < entries.length; i++) {
+      delete forms[entries[i][0]];
+      pruned++;
+    }
+
+    if (pruned > 0) {
+      await chrome.storage.local.set({ [STORAGE_KEY]: forms });
+    }
+    return pruned;
+  }
+
+  /**
+   * Get storage usage information
+   * @returns {Promise<Object>} Storage usage stats
+   */
+  async function getStorageInfo() {
+    const bytesUsed = await chrome.storage.local.getBytesInUse(null);
+    const forms = await getAllForms();
+    return {
+      bytesUsed,
+      maxBytes: MAX_BYTES,
+      percentUsed: (bytesUsed / MAX_BYTES) * 100,
+      nearQuota: bytesUsed >= MAX_BYTES * QUOTA_WARNING_THRESHOLD,
+      formCount: Object.keys(forms).length
+    };
+  }
+
+  /**
+   * Get count of saved forms for a specific domain
+   * @param {string} domain - The domain to count forms for
+   * @returns {Promise<number>} Number of saved forms
+   */
+  async function getFormCountForDomain(domain) {
+    const forms = await getAllForms();
+    let count = 0;
+    for (const form of Object.values(forms)) {
+      try {
+        const formDomain = new URL(form.url).hostname;
+        if (formDomain === domain) count++;
+      } catch (e) {
+        // Skip invalid URLs
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Get user settings
+   * @returns {Promise<Object>} User settings
+   */
+  async function getSettings() {
+    const result = await chrome.storage.local.get(SETTINGS_KEY);
+    return { ...DEFAULT_SETTINGS, ...(result[SETTINGS_KEY] || {}) };
+  }
+
+  /**
+   * Save user settings
+   * @param {Object} settings - Settings to save (merged with existing)
+   * @returns {Promise<void>}
+   */
+  async function saveSettings(settings) {
+    const current = await getSettings();
+    await chrome.storage.local.set({
+      [SETTINGS_KEY]: { ...current, ...settings }
+    });
+  }
+
+  /**
+   * Check if a domain is blocklisted
+   * @param {string} domain - The domain to check
+   * @returns {Promise<boolean>} True if blocklisted
+   */
+  async function isDomainBlocklisted(domain) {
+    const settings = await getSettings();
+    if (!settings.blocklist) return false;
+    const blocklist = settings.blocklist
+      .split(',')
+      .map(d => d.trim().toLowerCase())
+      .filter(d => d.length > 0);
+    return blocklist.some(blocked => domain.toLowerCase().includes(blocked));
+  }
+
+  return {
+    getAllForms,
+    getForm,
+    saveForm,
+    deleteForm,
+    deleteAllForms,
+    searchForms,
+    pruneOldForms,
+    pruneIfNearQuota,
+    getStorageInfo,
+    getFormCountForDomain,
+    getSettings,
+    saveSettings,
+    isDomainBlocklisted,
+    DEFAULT_SETTINGS
+  };
+})();

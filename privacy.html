@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FormVault — Privacy Policy</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      line-height: 1.7;
+      padding: 40px 20px;
+      max-width: 680px;
+      margin: 0 auto;
+    }
+    h1 { color: #fafafa; font-size: 28px; margin-bottom: 8px; }
+    .updated { color: #666; font-size: 13px; margin-bottom: 32px; }
+    h2 { color: #22c55e; font-size: 18px; margin: 28px 0 12px; }
+    p, li { font-size: 15px; margin-bottom: 12px; }
+    ul { padding-left: 24px; }
+    .highlight {
+      background: rgba(34, 197, 94, 0.1);
+      border-left: 3px solid #22c55e;
+      padding: 16px;
+      border-radius: 0 8px 8px 0;
+      margin: 20px 0;
+    }
+    a { color: #22c55e; }
+  </style>
+</head>
+<body>
+  <h1>FormVault Privacy Policy</h1>
+  <p class="updated">Last updated: March 2026</p>
+
+  <div class="highlight">
+    <strong>The short version:</strong> FormVault stores everything locally on your device.
+    We collect nothing. We transmit nothing. We have no servers.
+  </div>
+
+  <h2>What Data FormVault Stores</h2>
+  <p>FormVault saves the text you type into web forms (input fields, textareas, dropdowns) so you can recover it if a page crashes, refreshes, or you navigate away. This data is stored using Chrome's built-in local storage API (<code>chrome.storage.local</code>) and never leaves your browser.</p>
+
+  <h2>What FormVault Does NOT Store</h2>
+  <ul>
+    <li>Passwords</li>
+    <li>Credit card numbers, CVVs, or expiration dates</li>
+    <li>Social Security numbers</li>
+    <li>Any field with sensitive autocomplete attributes</li>
+    <li>Data from banking and financial sites (excluded by default)</li>
+  </ul>
+
+  <h2>Data Transmission</h2>
+  <p>FormVault makes <strong>zero network requests</strong>. No data is ever sent to any server, API, analytics service, or third party. The extension contains no tracking code, no telemetry, and no external dependencies.</p>
+
+  <h2>Data Retention</h2>
+  <p>Saved form data is automatically deleted after a configurable retention period (default: 30 days). You can change this to 7 days, 90 days, or never in the extension settings. You can also manually delete individual entries or clear all data at any time.</p>
+
+  <h2>Permissions Explained</h2>
+  <ul>
+    <li><strong>storage</strong> — Used to save and retrieve your form data locally</li>
+    <li><strong>activeTab</strong> — Used to show the badge count for the current tab</li>
+    <li><strong>alarms</strong> — Used to schedule automatic cleanup of expired data</li>
+  </ul>
+
+  <h2>Third-Party Services</h2>
+  <p>FormVault uses no third-party services, libraries, or APIs. It is built entirely with vanilla JavaScript and Chrome's built-in APIs.</p>
+
+  <h2>Your Control</h2>
+  <p>You have full control over your data:</p>
+  <ul>
+    <li>Delete individual saved forms from the popup</li>
+    <li>Clear all saved data with one click</li>
+    <li>Blocklist specific domains from being saved</li>
+    <li>Disable auto-save entirely</li>
+    <li>Uninstall the extension to remove all stored data</li>
+  </ul>
+
+  <h2>Contact</h2>
+  <p>Questions about this privacy policy? Open an issue on our GitHub repository.</p>
+</body>
+</html>

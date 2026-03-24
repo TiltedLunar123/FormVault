@@ -1,0 +1,774 @@
+/**
+ * FormVault — Content Script
+ * Injected into all pages. Handles form detection, auto-save, and restore toast.
+ * Uses Shadow DOM for all injected UI to prevent style conflicts.
+ */
+
+(() => {
+  'use strict';
+
+  // ==================== CONFIGURATION ====================
+
+  const DEBOUNCE_MS = 3000;
+  const TOAST_AUTO_DISMISS_MS = 15000;
+  const MAX_AGE_DAYS = 7;
+  const MIN_FIELD_LENGTH = 3;
+
+  // Input types to track
+  const TRACKED_INPUT_TYPES = new Set([
+    'text', 'email', 'tel', 'number', 'url', 'search',
+    'date', 'datetime-local', 'month', 'week', 'time'
+  ]);
+
+  // Sensitive field patterns — never save these
+  const SENSITIVE_PATTERNS = /password|passwd|pwd|ssn|social.?security|cc[-_]?num|card[-_]?number|cvv|cvc|ccv|credit.?card|expir|routing.?number|account.?number|pin[-_]?code/i;
+  const SENSITIVE_AUTOCOMPLETE = new Set([
+    'cc-number', 'cc-exp', 'cc-exp-month', 'cc-exp-year',
+    'cc-csc', 'cc-name', 'cc-type', 'cc-given-name',
+    'cc-additional-name', 'cc-family-name',
+    'new-password', 'current-password'
+  ]);
+
+  // ==================== PAGE KEY GENERATION ====================
+
+  /**
+   * Generate a stable page key from the current URL.
+   * Strips volatile query params/hashes but keeps form-identifying ones.
+   */
+  function generatePageKey() {
+    const url = new URL(window.location.href);
+    const keepParams = ['step', 'page', 'section', 'tab', 'id', 'form'];
+    const params = new URLSearchParams();
+
+    for (const key of keepParams) {
+      if (url.searchParams.has(key)) {
+        params.set(key, url.searchParams.get(key));
+      }
+    }
+
+    const paramStr = params.toString();
+    return url.origin + url.pathname + (paramStr ? '?' + paramStr : '');
+  }
+
+  // ==================== FIELD DETECTION & IDENTIFICATION ====================
+
+  /**
+   * Check if a field is sensitive and should not be saved
+   */
+  function isSensitiveField(el) {
+    const type = (el.type || '').toLowerCase();
+    if (type === 'password' || type === 'hidden') return true;
+
+    const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+    if (SENSITIVE_AUTOCOMPLETE.has(autocomplete)) return true;
+
+    const identifiers = [
+      el.id, el.name, el.getAttribute('autocomplete'),
+      el.getAttribute('aria-label'), el.placeholder
+    ].filter(Boolean).join(' ');
+
+    return SENSITIVE_PATTERNS.test(identifiers);
+  }
+
+  /**
+   * Generate a unique CSS selector for an element
+   */
+  function getUniqueSelector(el) {
+    if (el.id) return `#${CSS.escape(el.id)}`;
+
+    const tag = el.tagName.toLowerCase();
+    if (el.name) {
+      const selector = `${tag}[name="${CSS.escape(el.name)}"]`;
+      if (document.querySelectorAll(selector).length === 1) return selector;
+    }
+
+    // Build path-based selector
+    const parts = [];
+    let current = el;
+    while (current && current !== document.body) {
+      let selector = current.tagName.toLowerCase();
+      if (current.id) {
+        parts.unshift(`#${CSS.escape(current.id)}`);
+        break;
+      }
+      const parent = current.parentElement;
+      if (parent) {
+        const siblings = Array.from(parent.children).filter(c => c.tagName === current.tagName);
+        if (siblings.length > 1) {
+          const index = siblings.indexOf(current) + 1;
+          selector += `:nth-of-type(${index})`;
+        }
+      }
+      parts.unshift(selector);
+      current = current.parentElement;
+    }
+    return parts.join(' > ');
+  }
+
+  /**
+   * Generate an XPath for an element (last resort identifier)
+   */
+  function getXPath(el) {
+    const parts = [];
+    let current = el;
+    while (current && current.nodeType === Node.ELEMENT_NODE) {
+      let index = 1;
+      let sibling = current.previousElementSibling;
+      while (sibling) {
+        if (sibling.tagName === current.tagName) index++;
+        sibling = sibling.previousElementSibling;
+      }
+      parts.unshift(`${current.tagName.toLowerCase()}[${index}]`);
+      current = current.parentElement;
+    }
+    return '/' + parts.join('/');
+  }
+
+  /**
+   * Extract human-readable label for a field
+   */
+  function getFieldLabel(el) {
+    // Check associated <label>
+    if (el.id) {
+      const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (label) return label.textContent.trim();
+    }
+
+    // Check wrapping <label>
+    const parentLabel = el.closest('label');
+    if (parentLabel) {
+      const text = parentLabel.textContent.trim();
+      const fieldValue = el.value || '';
+      return text.replace(fieldValue, '').trim() || text;
+    }
+
+    // Check aria-label
+    if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
+
+    // Check aria-labelledby
+    const labelledBy = el.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const labelEl = document.getElementById(labelledBy);
+      if (labelEl) return labelEl.textContent.trim();
+    }
+
+    // Check placeholder
+    if (el.placeholder) return el.placeholder;
+
+    // Fall back to name attribute, prettified
+    if (el.name) {
+      return el.name
+        .replace(/[_\-\[\]]/g, ' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .trim();
+    }
+
+    return el.type || 'field';
+  }
+
+  /**
+   * Get the value of a form field
+   */
+  function getFieldValue(el) {
+    if (el.getAttribute('contenteditable') === 'true') {
+      return el.innerText || el.textContent || '';
+    }
+    if (el.tagName === 'SELECT') {
+      return el.value;
+    }
+    return el.value || '';
+  }
+
+  /**
+   * Find all trackable form fields on the page
+   */
+  function findFormFields() {
+    const fields = [];
+
+    // Standard inputs
+    document.querySelectorAll('input').forEach(el => {
+      const type = (el.type || 'text').toLowerCase();
+      if (!TRACKED_INPUT_TYPES.has(type)) return;
+      if (isSensitiveField(el)) return;
+      fields.push(el);
+    });
+
+    // Textareas
+    document.querySelectorAll('textarea').forEach(el => {
+      if (isSensitiveField(el)) return;
+      fields.push(el);
+    });
+
+    // Selects
+    document.querySelectorAll('select').forEach(el => {
+      if (isSensitiveField(el)) return;
+      fields.push(el);
+    });
+
+    // Contenteditable elements
+    document.querySelectorAll('[contenteditable="true"]').forEach(el => {
+      if (el.tagName === 'BODY') return;
+      fields.push(el);
+    });
+
+    return fields;
+  }
+
+  // ==================== AUTO-SAVE LOGIC ====================
+
+  let debounceTimer = null;
+  let isInitialized = false;
+  let settings = null;
+
+  /**
+   * Collect all form data from the current page
+   */
+  function collectFormData() {
+    const fields = findFormFields();
+    const fieldData = [];
+
+    fields.forEach(el => {
+      const value = getFieldValue(el);
+      if (value.length < MIN_FIELD_LENGTH) return;
+
+      fieldData.push({
+        selector: getUniqueSelector(el),
+        xpath: getXPath(el),
+        name: el.name || el.id || '',
+        label: getFieldLabel(el),
+        type: el.getAttribute('contenteditable') === 'true'
+          ? 'contenteditable'
+          : el.tagName.toLowerCase() === 'select'
+            ? 'select'
+            : (el.type || 'text'),
+        value: value
+      });
+    });
+
+    return fieldData;
+  }
+
+  /**
+   * Save current form data to storage
+   */
+  async function saveCurrentForms() {
+    if (settings && !settings.autoSaveEnabled) return;
+
+    const fields = collectFormData();
+    if (fields.length === 0) return;
+
+    const pageKey = generatePageKey();
+
+    // Try to get favicon
+    let favicon = '';
+    const faviconLink = document.querySelector('link[rel*="icon"]');
+    if (faviconLink) {
+      favicon = faviconLink.href;
+    } else {
+      favicon = window.location.origin + '/favicon.ico';
+    }
+
+    const formData = {
+      url: window.location.href,
+      title: document.title || window.location.hostname,
+      favicon: favicon,
+      fields: fields
+    };
+
+    try {
+      await FormVaultStorage.saveForm(pageKey, formData);
+      await FormVaultStorage.pruneIfNearQuota();
+
+      // Notify background for badge update
+      chrome.runtime.sendMessage({
+        action: 'formSaved',
+        domain: window.location.hostname
+      }).catch(() => {
+        // Background may not be ready
+      });
+    } catch (e) {
+      console.error('FormVault: Error saving form data', e);
+    }
+  }
+
+  /**
+   * Debounced save — resets timer on every input
+   */
+  function debouncedSave() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(saveCurrentForms, DEBOUNCE_MS);
+  }
+
+  /**
+   * Attach event listeners to a form field
+   */
+  function attachFieldListeners(el) {
+    if (el._formvaultListening) return;
+    el._formvaultListening = true;
+
+    el.addEventListener('input', debouncedSave, { passive: true });
+    el.addEventListener('change', debouncedSave, { passive: true });
+    el.addEventListener('blur', debouncedSave, { passive: true });
+  }
+
+  /**
+   * Scan page and attach listeners to all form fields
+   */
+  function scanAndAttach() {
+    const fields = findFormFields();
+    fields.forEach(attachFieldListeners);
+  }
+
+  // ==================== RESTORE TOAST ====================
+
+  /**
+   * Format relative time string
+   */
+  function timeAgo(timestamp) {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} minute${minutes !== 1 ? 's' : ''} ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hour${hours !== 1 ? 's' : ''} ago`;
+    const days = Math.floor(hours / 24);
+    return `${days} day${days !== 1 ? 's' : ''} ago`;
+  }
+
+  /**
+   * Restore field values from saved data
+   */
+  function restoreFields(fields) {
+    let restored = 0;
+
+    fields.forEach(fieldData => {
+      let el = null;
+
+      // Try selector first
+      try {
+        el = document.querySelector(fieldData.selector);
+      } catch (e) {
+        // Invalid selector
+      }
+
+      // Try by name
+      if (!el && fieldData.name) {
+        el = document.querySelector(`[name="${CSS.escape(fieldData.name)}"]`) ||
+             document.getElementById(fieldData.name);
+      }
+
+      // Try XPath as last resort
+      if (!el && fieldData.xpath) {
+        try {
+          const result = document.evaluate(
+            fieldData.xpath, document, null,
+            XPathResult.FIRST_ORDERED_NODE_TYPE, null
+          );
+          el = result.singleNodeValue;
+        } catch (e) {
+          // Invalid XPath
+        }
+      }
+
+      if (!el) return;
+
+      // Set value based on field type
+      if (fieldData.type === 'contenteditable') {
+        el.innerText = fieldData.value;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      } else if (fieldData.type === 'select') {
+        el.value = fieldData.value;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        // Use native setter for React compatibility
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype, 'value'
+        )?.set || Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype, 'value'
+        )?.set;
+
+        if (nativeSetter) {
+          nativeSetter.call(el, fieldData.value);
+        } else {
+          el.value = fieldData.value;
+        }
+
+        // Dispatch events for React/SPA frameworks
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        el.dispatchEvent(new Event('blur', { bubbles: true }));
+      }
+
+      restored++;
+    });
+
+    return restored;
+  }
+
+  /**
+   * Create an SVG shield icon element for the toast
+   */
+  function createShieldIcon() {
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('class', 'shield-icon');
+    svg.setAttribute('viewBox', '0 0 32 32');
+    svg.setAttribute('fill', 'none');
+
+    const circle = document.createElementNS(svgNS, 'circle');
+    circle.setAttribute('cx', '16');
+    circle.setAttribute('cy', '16');
+    circle.setAttribute('r', '15');
+    circle.setAttribute('fill', '#22c55e');
+    circle.setAttribute('opacity', '0.15');
+
+    const path1 = document.createElementNS(svgNS, 'path');
+    path1.setAttribute('d', 'M16 4L7 8.5V15C7 21.1 10.8 26.7 16 28.3C21.2 26.7 25 21.1 25 15V8.5L16 4Z');
+    path1.setAttribute('fill', '#22c55e');
+    path1.setAttribute('opacity', '0.3');
+
+    const path2 = document.createElementNS(svgNS, 'path');
+    path2.setAttribute('d', 'M16 6L9 9.8V15C9 20.1 12.2 24.8 16 26.2C19.8 24.8 23 20.1 23 15V9.8L16 6Z');
+    path2.setAttribute('fill', '#22c55e');
+
+    const check = document.createElementNS(svgNS, 'path');
+    check.setAttribute('d', 'M13 16L15 18L19.5 13.5');
+    check.setAttribute('stroke', 'white');
+    check.setAttribute('stroke-width', '2');
+    check.setAttribute('stroke-linecap', 'round');
+    check.setAttribute('stroke-linejoin', 'round');
+
+    svg.appendChild(circle);
+    svg.appendChild(path1);
+    svg.appendChild(path2);
+    svg.appendChild(check);
+
+    return svg;
+  }
+
+  /**
+   * Create and show the restore toast using Shadow DOM
+   */
+  function showRestoreToast(savedData) {
+    if (settings && !settings.showRestoreToast) return;
+
+    const host = document.createElement('div');
+    host.id = 'formvault-toast-host';
+    const shadow = host.attachShadow({ mode: 'closed' });
+
+    const style = document.createElement('style');
+    style.textContent = `
+      :host {
+        all: initial;
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 2147483647;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+
+      .toast {
+        background: rgba(15, 15, 15, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 16px;
+        max-width: 360px;
+        color: #fafafa;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        transform: translateY(100px);
+        opacity: 0;
+        transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+                    opacity 0.35s ease;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .toast.visible {
+        transform: translateY(0);
+        opacity: 1;
+      }
+
+      .toast.hiding {
+        opacity: 0;
+        transform: translateY(10px);
+        transition: opacity 0.3s ease, transform 0.3s ease;
+      }
+
+      .shield-icon {
+        flex-shrink: 0;
+        width: 32px;
+        height: 32px;
+      }
+
+      .content {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .title {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0 0 4px 0;
+        color: #fafafa;
+      }
+
+      .subtitle {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.5);
+        margin: 0 0 12px 0;
+      }
+
+      .field-count {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.6);
+        margin: 0 0 12px 0;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .btn {
+        border: none;
+        border-radius: 8px;
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: opacity 0.2s, transform 0.1s;
+        font-family: inherit;
+      }
+
+      .btn:hover {
+        opacity: 0.9;
+      }
+
+      .btn:active {
+        transform: scale(0.97);
+      }
+
+      .btn-restore {
+        background: #22c55e;
+        color: #fff;
+      }
+
+      .btn-dismiss {
+        background: rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      .btn-dismiss:hover {
+        background: rgba(255, 255, 255, 0.15);
+      }
+
+      .success-msg {
+        font-size: 13px;
+        color: #22c55e;
+        font-weight: 500;
+        padding: 4px 0;
+      }
+    `;
+
+    // Build toast DOM safely
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+
+    const fieldCount = savedData.fields.length;
+    const savedTime = timeAgo(savedData.savedAt);
+
+    // Shield icon (SVG built via DOM API)
+    const shieldIcon = createShieldIcon();
+
+    // Content container
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'content';
+
+    const titleP = document.createElement('p');
+    titleP.className = 'title';
+    titleP.textContent = 'Restore your saved form data?';
+
+    const subtitleP = document.createElement('p');
+    subtitleP.className = 'subtitle';
+    subtitleP.textContent = 'Saved ' + savedTime;
+
+    const fieldCountP = document.createElement('p');
+    fieldCountP.className = 'field-count';
+    fieldCountP.textContent = fieldCount + ' field' + (fieldCount !== 1 ? 's' : '') + ' saved';
+
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'actions';
+
+    const restoreBtn = document.createElement('button');
+    restoreBtn.className = 'btn btn-restore';
+    restoreBtn.textContent = 'Restore';
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.className = 'btn btn-dismiss';
+    dismissBtn.textContent = 'Dismiss';
+
+    actionsDiv.appendChild(restoreBtn);
+    actionsDiv.appendChild(dismissBtn);
+
+    contentDiv.appendChild(titleP);
+    contentDiv.appendChild(subtitleP);
+    contentDiv.appendChild(fieldCountP);
+    contentDiv.appendChild(actionsDiv);
+
+    toast.appendChild(shieldIcon);
+    toast.appendChild(contentDiv);
+
+    shadow.appendChild(style);
+    shadow.appendChild(toast);
+    document.body.appendChild(host);
+
+    // Animate in
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        toast.classList.add('visible');
+      });
+    });
+
+    // Auto-dismiss timer
+    let autoDismissTimer = setTimeout(() => dismissToast(), TOAST_AUTO_DISMISS_MS);
+
+    function dismissToast() {
+      clearTimeout(autoDismissTimer);
+      toast.classList.remove('visible');
+      toast.classList.add('hiding');
+      setTimeout(() => {
+        host.remove();
+      }, 300);
+    }
+
+    // Restore button click handler
+    restoreBtn.addEventListener('click', () => {
+      clearTimeout(autoDismissTimer);
+      const restored = restoreFields(savedData.fields);
+
+      // Replace actions with success message
+      while (actionsDiv.firstChild) {
+        actionsDiv.removeChild(actionsDiv.firstChild);
+      }
+      const successMsg = document.createElement('span');
+      successMsg.className = 'success-msg';
+      successMsg.textContent = 'Restored ' + restored + ' field' + (restored !== 1 ? 's' : '') + ' successfully!';
+      actionsDiv.appendChild(successMsg);
+
+      setTimeout(() => dismissToast(), 2000);
+    });
+
+    // Dismiss button click handler
+    dismissBtn.addEventListener('click', () => {
+      dismissToast();
+    });
+  }
+
+  // ==================== MUTATION OBSERVER ====================
+
+  /**
+   * Watch for dynamically added form fields (React/SPA apps)
+   */
+  function setupMutationObserver() {
+    const observer = new MutationObserver((mutations) => {
+      let hasNewFields = false;
+
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType !== Node.ELEMENT_NODE) continue;
+          // Skip our own toast
+          if (node.id === 'formvault-toast-host') continue;
+
+          // Check if the added node is a form field
+          if (isTrackableField(node)) {
+            attachFieldListeners(node);
+            hasNewFields = true;
+          }
+
+          // Check children of added node
+          if (node.querySelectorAll) {
+            const fields = node.querySelectorAll(
+              'input, textarea, select, [contenteditable="true"]'
+            );
+            fields.forEach(field => {
+              if (isTrackableField(field)) {
+                attachFieldListeners(field);
+                hasNewFields = true;
+              }
+            });
+          }
+        }
+      }
+
+      if (hasNewFields) {
+        debouncedSave();
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  /**
+   * Check if an element is a trackable form field
+   */
+  function isTrackableField(el) {
+    if (el.tagName === 'INPUT') {
+      const type = (el.type || 'text').toLowerCase();
+      return TRACKED_INPUT_TYPES.has(type) && !isSensitiveField(el);
+    }
+    if (el.tagName === 'TEXTAREA') return !isSensitiveField(el);
+    if (el.tagName === 'SELECT') return !isSensitiveField(el);
+    if (el.getAttribute && el.getAttribute('contenteditable') === 'true') {
+      return el.tagName !== 'BODY';
+    }
+    return false;
+  }
+
+  // ==================== INITIALIZATION ====================
+
+  async function init() {
+    if (isInitialized) return;
+    isInitialized = true;
+
+    try {
+      settings = await FormVaultStorage.getSettings();
+
+      const isBlocked = await FormVaultStorage.isDomainBlocklisted(
+        window.location.hostname
+      );
+      if (isBlocked) return;
+
+      scanAndAttach();
+
+      // Future enhancement: also handle iframes
+      if (document.body) {
+        setupMutationObserver();
+      }
+
+      // Check for saved data and show restore toast
+      const pageKey = generatePageKey();
+      const savedData = await FormVaultStorage.getForm(pageKey);
+
+      if (savedData) {
+        const ageMs = Date.now() - savedData.savedAt;
+        const maxAgeMs = MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+
+        if (ageMs < maxAgeMs && savedData.fields.length > 0) {
+          setTimeout(() => showRestoreToast(savedData), 1000);
+        }
+      }
+    } catch (e) {
+      console.error('FormVault: Initialization error', e);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();

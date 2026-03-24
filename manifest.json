@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "FormVault",
+  "version": "1.0.0",
+  "description": "Auto-saves web form data locally and lets you restore it if a page crashes, refreshes, or you navigate away.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "alarms"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "exclude_matches": [
+        "*://*.bankofamerica.com/*",
+        "*://*.chase.com/*",
+        "*://*.wellsfargo.com/*",
+        "*://*.citi.com/*",
+        "*://*.usbank.com/*",
+        "*://*.capitalone.com/*",
+        "*://*.paypal.com/*",
+        "*://*.venmo.com/*",
+        "*://*.stripe.com/*",
+        "*://*.irs.gov/*",
+        "*://*.ssa.gov/*",
+        "*://*.login.gov/*"
+      ],
+      "js": ["utils/storage.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none';"
+  }
+}

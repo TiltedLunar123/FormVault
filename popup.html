@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FormVault</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- Storage Warning Banner -->
+  <div class="storage-warning" id="storageWarning">
+    Storage nearly full — oldest entries will be auto-pruned.
+  </div>
+
+  <!-- Main View -->
+  <div id="mainView">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-top">
+        <svg class="logo" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="15" fill="#22c55e" opacity="0.15"/>
+          <path d="M16 4L7 8.5V15C7 21.1 10.8 26.7 16 28.3C21.2 26.7 25 21.1 25 15V8.5L16 4Z" fill="#22c55e" opacity="0.3"/>
+          <path d="M16 6L9 9.8V15C9 20.1 12.2 24.8 16 26.2C19.8 24.8 23 20.1 23 15V9.8L16 6Z" fill="#22c55e"/>
+          <path d="M13 16L15 18L19.5 13.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div class="header-text">
+          <h1>FormVault</h1>
+          <span class="tagline">Your forms, always safe.</span>
+        </div>
+        <button class="settings-btn" id="settingsBtn" title="Settings">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="10" cy="10" r="3"/>
+            <path d="M10 1.5V4M10 16v2.5M1.5 10H4M16 10h2.5M3.4 3.4l1.8 1.8M14.8 14.8l1.8 1.8M3.4 16.6l1.8-1.8M14.8 5.2l1.8-1.8"/>
+          </svg>
+        </button>
+      </div>
+      <div class="search-container">
+        <svg class="search-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <circle cx="7" cy="7" r="5"/>
+          <path d="M11 11L14 14"/>
+        </svg>
+        <input type="text" class="search-input" id="searchInput" placeholder="Search forms...">
+      </div>
+    </div>
+
+    <!-- Form List -->
+    <div class="form-list" id="formList"></div>
+
+    <!-- Empty State -->
+    <div class="empty-state" id="emptyState" style="display: none;">
+      <svg class="empty-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="8" y="6" width="32" height="36" rx="4" stroke="currentColor" stroke-width="2"/>
+        <path d="M16 18h16M16 26h12M16 34h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div class="empty-title">No saved forms yet</div>
+      <div class="empty-text">
+        FormVault automatically saves your form data as you type.
+        If a page crashes or refreshes, your data will be here waiting.
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer" id="footer">
+      <div class="footer-stats">
+        <span class="form-count" id="formCount">0 forms saved</span>
+        <button class="clear-all-btn" id="clearAllBtn">Clear All</button>
+      </div>
+      <div class="privacy-badge">100% local — your data never leaves your browser</div>
+    </div>
+  </div>
+
+  <!-- Settings Panel -->
+  <div class="settings-panel" id="settingsPanel">
+    <div class="settings-header">
+      <button class="back-btn" id="backBtn">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 2L4 8l6 6"/>
+        </svg>
+      </button>
+      <span class="settings-title">Settings</span>
+    </div>
+    <div class="settings-content">
+      <div class="setting-item">
+        <div>
+          <div class="setting-label">Auto-save enabled</div>
+          <div class="setting-description">Automatically save form data as you type</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="autoSaveToggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-item">
+        <div>
+          <div class="setting-label">Show restore toast</div>
+          <div class="setting-description">Show notification when saved data is available</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="toastToggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-item">
+        <div>
+          <div class="setting-label">Auto-delete after</div>
+        </div>
+        <select class="setting-select" id="retentionSelect">
+          <option value="7">7 days</option>
+          <option value="30" selected>30 days</option>
+          <option value="90">90 days</option>
+          <option value="0">Never</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <div class="setting-label">Blocklisted domains</div>
+        <div class="setting-description">Comma-separated domains to never save (e.g., bank.com, paypal.com)</div>
+        <textarea class="blocklist-input" id="blocklistInput" placeholder="bank.com, paypal.com, venmo.com"></textarea>
+      </div>
+
+      <div class="privacy-notice">
+        All data is stored locally on your device using Chrome's built-in storage.
+        FormVault makes zero network requests. Nothing ever leaves your browser.
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Modal -->
+  <div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-dialog">
+      <div class="confirm-title" id="confirmTitle">Are you sure?</div>
+      <div class="confirm-text" id="confirmText">This action cannot be undone.</div>
+      <div class="confirm-actions">
+        <button class="btn btn-cancel" id="confirmCancel">Cancel</button>
+        <button class="btn btn-confirm-delete" id="confirmAction">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="utils/storage.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
