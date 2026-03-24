@@ -85,7 +85,8 @@
     // Build path-based selector
     const parts = [];
     let current = el;
-    while (current && current !== document.body) {
+    let depth = 0;
+    while (current && current !== document.body && current !== document.documentElement && depth < 20) {
       let selector = current.tagName.toLowerCase();
       if (current.id) {
         parts.unshift(`#${CSS.escape(current.id)}`);
@@ -101,6 +102,7 @@
       }
       parts.unshift(selector);
       current = current.parentElement;
+      depth++;
     }
     return parts.join(' > ');
   }
@@ -300,6 +302,21 @@
   }
 
   /**
+   * Immediate save — flush pending debounce and save now.
+   * Used on beforeunload / visibilitychange to prevent data loss.
+   */
+  function flushSave() {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+    // Use synchronous-style save; saveCurrentForms is async but
+    // beforeunload doesn't wait for promises — we fire and hope.
+    // visibilitychange fires early enough for it to complete.
+    saveCurrentForms();
+  }
+
+  /**
    * Attach event listeners to a form field
    */
   function attachFieldListeners(el) {
@@ -380,12 +397,11 @@
         el.value = fieldData.value;
         el.dispatchEvent(new Event('change', { bubbles: true }));
       } else {
-        // Use native setter for React compatibility
-        const nativeSetter = Object.getOwnPropertyDescriptor(
-          HTMLInputElement.prototype, 'value'
-        )?.set || Object.getOwnPropertyDescriptor(
-          HTMLTextAreaElement.prototype, 'value'
-        )?.set;
+        // Use the correct native setter for React compatibility
+        const proto = el instanceof HTMLTextAreaElement
+          ? HTMLTextAreaElement.prototype
+          : HTMLInputElement.prototype;
+        const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
 
         if (nativeSetter) {
           nativeSetter.call(el, fieldData.value);
@@ -451,6 +467,10 @@
    */
   function showRestoreToast(savedData) {
     if (settings && !settings.showRestoreToast) return;
+
+    // Prevent duplicate toasts
+    const existing = document.getElementById('formvault-toast-host');
+    if (existing) existing.remove();
 
     const host = document.createElement('div');
     host.id = 'formvault-toast-host';
@@ -735,6 +755,10 @@
     isInitialized = true;
 
     try {
+      // Skip non-http pages where the extension can't fully operate
+      const protocol = window.location.protocol;
+      if (protocol !== 'http:' && protocol !== 'https:') return;
+
       settings = await FormVaultStorage.getSettings();
 
       const isBlocked = await FormVaultStorage.isDomainBlocklisted(
@@ -748,6 +772,21 @@
       if (document.body) {
         setupMutationObserver();
       }
+
+      // Save immediately when user leaves or switches tabs to prevent data loss
+      window.addEventListener('beforeunload', flushSave);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+          flushSave();
+        }
+      });
+
+      // Listen for settings changes from the popup
+      chrome.storage.onChanged.addListener((changes) => {
+        if (changes.settings) {
+          settings = { ...FormVaultStorage.DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
+        }
+      });
 
       // Check for saved data and show restore toast
       const pageKey = generatePageKey();

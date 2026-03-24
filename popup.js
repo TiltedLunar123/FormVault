@@ -36,6 +36,7 @@
 
   let allForms = {};
   let confirmCallback = null;
+  let searchTimer = null;
 
   // ==================== INITIALIZATION ====================
 
@@ -71,13 +72,11 @@
     if (entries.length === 0) {
       elements.emptyState.style.display = 'flex';
       elements.formList.style.display = 'none';
-      elements.footer.style.display = 'none';
       return;
     }
 
     elements.emptyState.style.display = 'none';
     elements.formList.style.display = 'block';
-    elements.footer.style.display = 'block';
 
     entries.forEach(([key, form]) => {
       const entry = createFormEntry(key, form);
@@ -281,9 +280,12 @@
   // ==================== EVENT LISTENERS ====================
 
   function setupEventListeners() {
-    // Search
+    // Search (debounced to avoid excessive storage reads)
     elements.searchInput.addEventListener('input', () => {
-      loadForms(elements.searchInput.value);
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        loadForms(elements.searchInput.value);
+      }, 200);
     });
 
     // Settings toggle

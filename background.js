@@ -20,6 +20,11 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(() => {
   runCleanup();
+
+  // Re-create alarm on browser startup (alarms don't persist in MV3)
+  chrome.alarms.create(CLEANUP_ALARM, {
+    periodInMinutes: CLEANUP_INTERVAL_MINUTES
+  });
 });
 
 // ==================== ALARM HANDLER ====================
