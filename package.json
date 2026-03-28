@@ -1,0 +1,19 @@
+{
+  "name": "formvault",
+  "version": "1.0.0",
+  "description": "Auto-save and restore web form data locally. Chrome extension that protects your form inputs from page crashes, refreshes, and accidental navigation. 100% private — zero network requests.",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "package": "mkdir -p dist && zip -r dist/formvault.zip manifest.json background.js content.js popup.html popup.js popup.css privacy.html icons/ utils/"
+  },
+  "keywords": [
+    "chrome-extension",
+    "form-data",
+    "auto-save",
+    "privacy",
+    "manifest-v3"
+  ],
+  "author": "TiltedLunar",
+  "license": "MIT"
+}
