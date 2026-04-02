@@ -72,6 +72,7 @@
     if (entries.length === 0) {
       elements.emptyState.style.display = 'flex';
       elements.formList.style.display = 'none';
+      updateFormCount(0);
       return;
     }
 
@@ -83,9 +84,16 @@
       elements.formList.appendChild(entry);
     });
 
-    // Update count
-    const totalCount = Object.keys(allForms).length;
-    elements.formCount.textContent = totalCount + ' form' + (totalCount !== 1 ? 's' : '') + ' saved';
+    updateFormCount(entries.length);
+  }
+
+  function updateFormCount(count) {
+    const query = elements.searchInput.value.trim();
+    if (query) {
+      elements.formCount.textContent = count + ' result' + (count !== 1 ? 's' : '');
+    } else {
+      elements.formCount.textContent = count + ' form' + (count !== 1 ? 's' : '') + ' saved';
+    }
   }
 
   function createFormEntry(key, form) {
@@ -199,10 +207,10 @@
     const copyBtn = document.createElement('button');
     copyBtn.className = 'btn btn-copy';
     copyBtn.textContent = 'Copy All';
-    copyBtn.addEventListener('click', (e) => {
+    copyBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      copyFormData(form);
-      copyBtn.textContent = 'Copied!';
+      const success = await copyFormData(form);
+      copyBtn.textContent = success ? 'Copied!' : 'Failed';
       setTimeout(() => { copyBtn.textContent = 'Copy All'; }, 1500);
     });
 
@@ -280,7 +288,7 @@
   // ==================== EVENT LISTENERS ====================
 
   function setupEventListeners() {
-    // Search (debounced to avoid excessive storage reads)
+    // Search (debounced)
     elements.searchInput.addEventListener('input', () => {
       if (searchTimer) clearTimeout(searchTimer);
       searchTimer = setTimeout(() => {
@@ -297,6 +305,8 @@
     elements.backBtn.addEventListener('click', () => {
       elements.settingsPanel.classList.remove('visible');
       elements.mainView.style.display = '';
+      // Refresh list in case settings changed retention
+      loadForms(elements.searchInput.value);
     });
 
     // Settings changes
@@ -312,8 +322,15 @@
       saveSetting('retentionDays', parseInt(elements.retentionSelect.value, 10));
     });
 
+    // Blocklist input with validation
     elements.blocklistInput.addEventListener('change', () => {
-      saveSetting('blocklist', elements.blocklistInput.value);
+      const raw = elements.blocklistInput.value;
+      const domains = raw.split(',')
+        .map(d => d.trim().toLowerCase())
+        .filter(d => d.length > 0 && /^[\w.-]+$/.test(d));
+      const cleaned = [...new Set(domains)].join(', ');
+      elements.blocklistInput.value = cleaned;
+      saveSetting('blocklist', cleaned);
     });
 
     // Clear All
@@ -338,6 +355,13 @@
     });
     elements.confirmOverlay.addEventListener('click', (e) => {
       if (e.target === elements.confirmOverlay) hideConfirm();
+    });
+
+    // Live-update the form list when storage changes (e.g. from another tab saving)
+    chrome.storage.onChanged.addListener((changes) => {
+      if (changes.forms) {
+        loadForms(elements.searchInput.value);
+      }
     });
   }
 
@@ -370,8 +394,11 @@
     return days + ' day' + (days !== 1 ? 's' : '') + ' ago';
   }
 
-  function copyFormData(form) {
-    if (!form.fields || form.fields.length === 0) return;
+  /**
+   * Copy form data to clipboard. Returns true on success, false on failure.
+   */
+  async function copyFormData(form) {
+    if (!form.fields || form.fields.length === 0) return false;
 
     const lines = [
       'FormVault — ' + (form.title || 'Untitled'),
@@ -385,9 +412,13 @@
     });
 
     const text = lines.join('\n');
-    navigator.clipboard.writeText(text).catch(() => {
-      // Clipboard may not be available
-    });
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      console.error('FormVault: Clipboard write failed', e);
+      return false;
+    }
   }
 
   // ==================== START ====================

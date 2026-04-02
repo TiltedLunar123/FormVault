@@ -14,9 +14,10 @@ Auto-save and restore web form data locally. FormVault is a Chrome extension tha
 - **Sensitive Field Detection** — Automatically skips passwords, credit card numbers, SSNs, and other sensitive fields
 - **Search & Browse** — Full-text search across saved forms by title, URL, or field content
 - **Configurable Retention** — Auto-delete saved forms after 7, 30, or 90 days (or keep forever)
-- **Domain Blocklist** — Exclude specific domains (banking sites, etc.) from auto-saving
+- **Domain Blocklist** — Exclude specific domains (exact or subdomain match) from auto-saving
 - **Shadow DOM Isolation** — All injected UI is fully isolated from host page styles
-- **Storage Management** — Automatic pruning when approaching Chrome's 10 MB storage limit
+- **Storage Management** — Automatic pre-save quota checks with smart pruning of oldest entries
+- **Live Updates** — Popup refreshes in real-time when forms are saved from other tabs
 
 ## Installation
 

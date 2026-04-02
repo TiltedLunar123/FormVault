@@ -11,8 +11,7 @@
 
   const DEBOUNCE_MS = 3000;
   const TOAST_AUTO_DISMISS_MS = 15000;
-  const MAX_AGE_DAYS = 7;
-  const MIN_FIELD_LENGTH = 3;
+  const MIN_FIELD_LENGTH = 1;
 
   // Input types to track
   const TRACKED_INPUT_TYPES = new Set([
@@ -29,23 +28,37 @@
     'new-password', 'current-password'
   ]);
 
+  // Volatile query params to strip from page keys (tracking / analytics)
+  const STRIP_PARAMS = new Set([
+    'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
+    'fbclid', 'gclid', 'gclsrc', 'msclkid', 'dclid',
+    '_ga', '_gl', '_hsenc', '_hsmi', 'mc_cid', 'mc_eid',
+    'ref', 'source', 'trk', 'trkCampaign',
+    '__cf_chl_jschl_tk__', '__cf_chl_tk'
+  ]);
+
+  // CSS.escape polyfill for older environments
+  const cssEscape = typeof CSS !== 'undefined' && CSS.escape
+    ? CSS.escape.bind(CSS)
+    : (str) => String(str).replace(/([^\w-])/g, '\\$1');
+
   // ==================== PAGE KEY GENERATION ====================
 
   /**
    * Generate a stable page key from the current URL.
-   * Strips volatile query params/hashes but keeps form-identifying ones.
+   * Keeps all query params except known volatile ones (tracking, analytics).
    */
   function generatePageKey() {
     const url = new URL(window.location.href);
-    const keepParams = ['step', 'page', 'section', 'tab', 'id', 'form'];
     const params = new URLSearchParams();
 
-    for (const key of keepParams) {
-      if (url.searchParams.has(key)) {
-        params.set(key, url.searchParams.get(key));
+    for (const [key, value] of url.searchParams) {
+      if (!STRIP_PARAMS.has(key)) {
+        params.set(key, value);
       }
     }
 
+    params.sort();
     const paramStr = params.toString();
     return url.origin + url.pathname + (paramStr ? '?' + paramStr : '');
   }
@@ -53,7 +66,8 @@
   // ==================== FIELD DETECTION & IDENTIFICATION ====================
 
   /**
-   * Check if a field is sensitive and should not be saved
+   * Check if a field is sensitive and should not be saved.
+   * Tests each identifier independently to avoid false positives.
    */
   function isSensitiveField(el) {
     const type = (el.type || '').toLowerCase();
@@ -65,20 +79,20 @@
     const identifiers = [
       el.id, el.name, el.getAttribute('autocomplete'),
       el.getAttribute('aria-label'), el.placeholder
-    ].filter(Boolean).join(' ');
+    ].filter(Boolean);
 
-    return SENSITIVE_PATTERNS.test(identifiers);
+    return identifiers.some(id => SENSITIVE_PATTERNS.test(id));
   }
 
   /**
    * Generate a unique CSS selector for an element
    */
   function getUniqueSelector(el) {
-    if (el.id) return `#${CSS.escape(el.id)}`;
+    if (el.id) return `#${cssEscape(el.id)}`;
 
     const tag = el.tagName.toLowerCase();
     if (el.name) {
-      const selector = `${tag}[name="${CSS.escape(el.name)}"]`;
+      const selector = `${tag}[name="${cssEscape(el.name)}"]`;
       if (document.querySelectorAll(selector).length === 1) return selector;
     }
 
@@ -89,7 +103,7 @@
     while (current && current !== document.body && current !== document.documentElement && depth < 20) {
       let selector = current.tagName.toLowerCase();
       if (current.id) {
-        parts.unshift(`#${CSS.escape(current.id)}`);
+        parts.unshift(`#${cssEscape(current.id)}`);
         break;
       }
       const parent = current.parentElement;
@@ -120,7 +134,8 @@
         if (sibling.tagName === current.tagName) index++;
         sibling = sibling.previousElementSibling;
       }
-      parts.unshift(`${current.tagName.toLowerCase()}[${index}]`);
+      const tag = current.tagName.toLowerCase();
+      parts.unshift(`${tag}[${index}]`);
       current = current.parentElement;
     }
     return '/' + parts.join('/');
@@ -132,7 +147,7 @@
   function getFieldLabel(el) {
     // Check associated <label>
     if (el.id) {
-      const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      const label = document.querySelector(`label[for="${cssEscape(el.id)}"]`);
       if (label) return label.textContent.trim();
     }
 
@@ -173,12 +188,24 @@
    */
   function getFieldValue(el) {
     if (el.getAttribute('contenteditable') === 'true') {
-      return el.innerText || el.textContent || '';
+      return el.textContent || '';
     }
     if (el.tagName === 'SELECT') {
       return el.value;
     }
     return el.value || '';
+  }
+
+  /**
+   * Validate that a favicon URL uses a safe protocol
+   */
+  function isValidFaviconUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch (e) {
+      return false;
+    }
   }
 
   /**
@@ -221,6 +248,7 @@
   let debounceTimer = null;
   let isInitialized = false;
   let settings = null;
+  let mutationObserver = null;
 
   /**
    * Collect all form data from the current page
@@ -261,13 +289,16 @@
 
     const pageKey = generatePageKey();
 
-    // Try to get favicon
+    // Try to get favicon (validated)
     let favicon = '';
     const faviconLink = document.querySelector('link[rel*="icon"]');
-    if (faviconLink) {
+    if (faviconLink && isValidFaviconUrl(faviconLink.href)) {
       favicon = faviconLink.href;
     } else {
-      favicon = window.location.origin + '/favicon.ico';
+      const fallback = window.location.origin + '/favicon.ico';
+      if (isValidFaviconUrl(fallback)) {
+        favicon = fallback;
+      }
     }
 
     const formData = {
@@ -279,7 +310,6 @@
 
     try {
       await FormVaultStorage.saveForm(pageKey, formData);
-      await FormVaultStorage.pruneIfNearQuota();
 
       // Notify background for badge update
       chrome.runtime.sendMessage({
@@ -310,9 +340,8 @@
       clearTimeout(debounceTimer);
       debounceTimer = null;
     }
-    // Use synchronous-style save; saveCurrentForms is async but
-    // beforeunload doesn't wait for promises — we fire and hope.
-    // visibilitychange fires early enough for it to complete.
+    // saveCurrentForms is async but beforeunload doesn't await promises.
+    // visibilitychange fires early enough for it to complete in most cases.
     saveCurrentForms();
   }
 
@@ -370,7 +399,7 @@
 
       // Try by name
       if (!el && fieldData.name) {
-        el = document.querySelector(`[name="${CSS.escape(fieldData.name)}"]`) ||
+        el = document.querySelector(`[name="${cssEscape(fieldData.name)}"]`) ||
              document.getElementById(fieldData.name);
       }
 
@@ -391,8 +420,9 @@
 
       // Set value based on field type
       if (fieldData.type === 'contenteditable') {
-        el.innerText = fieldData.value;
+        el.textContent = fieldData.value;
         el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
       } else if (fieldData.type === 'select') {
         el.value = fieldData.value;
         el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -650,8 +680,16 @@
       });
     });
 
-    // Auto-dismiss timer
+    // Auto-dismiss timer (pause on hover)
     let autoDismissTimer = setTimeout(() => dismissToast(), TOAST_AUTO_DISMISS_MS);
+
+    toast.addEventListener('mouseenter', () => {
+      clearTimeout(autoDismissTimer);
+    });
+
+    toast.addEventListener('mouseleave', () => {
+      autoDismissTimer = setTimeout(() => dismissToast(), TOAST_AUTO_DISMISS_MS);
+    });
 
     function dismissToast() {
       clearTimeout(autoDismissTimer);
@@ -688,45 +726,53 @@
   // ==================== MUTATION OBSERVER ====================
 
   /**
-   * Watch for dynamically added form fields (React/SPA apps)
+   * Watch for dynamically added form fields (React/SPA apps).
+   * Stores reference for cleanup on unload.
    */
   function setupMutationObserver() {
-    const observer = new MutationObserver((mutations) => {
+    if (mutationObserver) mutationObserver.disconnect();
+
+    let pendingScan = false;
+
+    mutationObserver = new MutationObserver((mutations) => {
+      if (pendingScan) return;
+
       let hasNewFields = false;
 
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType !== Node.ELEMENT_NODE) continue;
-          // Skip our own toast
           if (node.id === 'formvault-toast-host') continue;
 
-          // Check if the added node is a form field
           if (isTrackableField(node)) {
-            attachFieldListeners(node);
             hasNewFields = true;
+            break;
           }
 
-          // Check children of added node
           if (node.querySelectorAll) {
             const fields = node.querySelectorAll(
               'input, textarea, select, [contenteditable="true"]'
             );
-            fields.forEach(field => {
-              if (isTrackableField(field)) {
-                attachFieldListeners(field);
-                hasNewFields = true;
-              }
-            });
+            if (fields.length > 0) {
+              hasNewFields = true;
+              break;
+            }
           }
         }
+        if (hasNewFields) break;
       }
 
       if (hasNewFields) {
-        debouncedSave();
+        pendingScan = true;
+        requestAnimationFrame(() => {
+          scanAndAttach();
+          debouncedSave();
+          pendingScan = false;
+        });
       }
     });
 
-    observer.observe(document.body, {
+    mutationObserver.observe(document.body, {
       childList: true,
       subtree: true
     });
@@ -768,7 +814,6 @@
 
       scanAndAttach();
 
-      // Future enhancement: also handle iframes
       if (document.body) {
         setupMutationObserver();
       }
@@ -781,6 +826,14 @@
         }
       });
 
+      // Cleanup observer on unload
+      window.addEventListener('beforeunload', () => {
+        if (mutationObserver) {
+          mutationObserver.disconnect();
+          mutationObserver = null;
+        }
+      });
+
       // Listen for settings changes from the popup
       chrome.storage.onChanged.addListener((changes) => {
         if (changes.settings) {
@@ -788,16 +841,22 @@
         }
       });
 
-      // Check for saved data and show restore toast
+      // Check for saved data and show restore toast.
+      // Uses the user's retention setting instead of a hardcoded max age.
       const pageKey = generatePageKey();
       const savedData = await FormVaultStorage.getForm(pageKey);
 
-      if (savedData) {
-        const ageMs = Date.now() - savedData.savedAt;
-        const maxAgeMs = MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
-
-        if (ageMs < maxAgeMs && savedData.fields.length > 0) {
+      if (savedData && savedData.fields.length > 0) {
+        const retentionDays = settings.retentionDays;
+        // retentionDays === 0 means "never delete" — always show toast
+        if (retentionDays === 0) {
           setTimeout(() => showRestoreToast(savedData), 1000);
+        } else {
+          const ageMs = Date.now() - savedData.savedAt;
+          const maxAgeMs = retentionDays * 24 * 60 * 60 * 1000;
+          if (ageMs < maxAgeMs) {
+            setTimeout(() => showRestoreToast(savedData), 1000);
+          }
         }
       }
     } catch (e) {

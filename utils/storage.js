@@ -22,8 +22,13 @@ const FormVaultStorage = (() => {
    * @returns {Promise<Object>} All saved form entries keyed by pageKey
    */
   async function getAllForms() {
-    const result = await chrome.storage.local.get(STORAGE_KEY);
-    return result[STORAGE_KEY] || {};
+    try {
+      const result = await chrome.storage.local.get(STORAGE_KEY);
+      return result[STORAGE_KEY] || {};
+    } catch (e) {
+      console.error('FormVault: Failed to read forms', e);
+      return {};
+    }
   }
 
   /**
@@ -37,18 +42,29 @@ const FormVaultStorage = (() => {
   }
 
   /**
-   * Save form data for a specific page key
+   * Save form data for a specific page key.
+   * Pre-checks quota and prunes if near the limit before writing.
    * @param {string} pageKey - The unique key for the page
    * @param {Object} formData - The form data to save
    * @returns {Promise<void>}
    */
   async function saveForm(pageKey, formData) {
-    const forms = await getAllForms();
-    forms[pageKey] = {
-      ...formData,
-      savedAt: Date.now()
-    };
-    await chrome.storage.local.set({ [STORAGE_KEY]: forms });
+    try {
+      // Pre-check quota before saving
+      const bytesUsed = await chrome.storage.local.getBytesInUse(null);
+      if (bytesUsed >= MAX_BYTES * QUOTA_WARNING_THRESHOLD) {
+        await pruneIfNearQuota();
+      }
+
+      const forms = await getAllForms();
+      forms[pageKey] = {
+        ...formData,
+        savedAt: Date.now()
+      };
+      await chrome.storage.local.set({ [STORAGE_KEY]: forms });
+    } catch (e) {
+      console.error('FormVault: Failed to save form', { pageKey, error: e.message || e });
+    }
   }
 
   /**
@@ -57,9 +73,13 @@ const FormVaultStorage = (() => {
    * @returns {Promise<void>}
    */
   async function deleteForm(pageKey) {
-    const forms = await getAllForms();
-    delete forms[pageKey];
-    await chrome.storage.local.set({ [STORAGE_KEY]: forms });
+    try {
+      const forms = await getAllForms();
+      delete forms[pageKey];
+      await chrome.storage.local.set({ [STORAGE_KEY]: forms });
+    } catch (e) {
+      console.error('FormVault: Failed to delete form', e);
+    }
   }
 
   /**
@@ -67,7 +87,11 @@ const FormVaultStorage = (() => {
    * @returns {Promise<void>}
    */
   async function deleteAllForms() {
-    await chrome.storage.local.set({ [STORAGE_KEY]: {} });
+    try {
+      await chrome.storage.local.set({ [STORAGE_KEY]: {} });
+    } catch (e) {
+      console.error('FormVault: Failed to clear all forms', e);
+    }
   }
 
   /**
@@ -83,17 +107,14 @@ const FormVaultStorage = (() => {
     const results = {};
 
     for (const [key, form] of Object.entries(forms)) {
-      // Search in title
       if (form.title && form.title.toLowerCase().includes(lowerQuery)) {
         results[key] = form;
         continue;
       }
-      // Search in URL
       if (form.url && form.url.toLowerCase().includes(lowerQuery)) {
         results[key] = form;
         continue;
       }
-      // Search in field labels and values
       if (form.fields && form.fields.some(field =>
         (field.label && field.label.toLowerCase().includes(lowerQuery)) ||
         (field.value && field.value.toLowerCase().includes(lowerQuery))
@@ -134,24 +155,29 @@ const FormVaultStorage = (() => {
    * @returns {Promise<number>} Number of forms pruned
    */
   async function pruneIfNearQuota() {
-    const bytesUsed = await chrome.storage.local.getBytesInUse(null);
-    if (bytesUsed < MAX_BYTES * QUOTA_WARNING_THRESHOLD) return 0;
+    try {
+      const bytesUsed = await chrome.storage.local.getBytesInUse(null);
+      if (bytesUsed < MAX_BYTES * QUOTA_WARNING_THRESHOLD) return 0;
 
-    const forms = await getAllForms();
-    const entries = Object.entries(forms).sort((a, b) => a[1].savedAt - b[1].savedAt);
-    let pruned = 0;
+      const forms = await getAllForms();
+      const entries = Object.entries(forms).sort((a, b) => a[1].savedAt - b[1].savedAt);
+      let pruned = 0;
 
-    // Remove oldest 20% of entries
-    const toRemove = Math.max(1, Math.ceil(entries.length * 0.2));
-    for (let i = 0; i < toRemove && i < entries.length; i++) {
-      delete forms[entries[i][0]];
-      pruned++;
+      // Remove oldest 20% of entries
+      const toRemove = Math.max(1, Math.ceil(entries.length * 0.2));
+      for (let i = 0; i < toRemove && i < entries.length; i++) {
+        delete forms[entries[i][0]];
+        pruned++;
+      }
+
+      if (pruned > 0) {
+        await chrome.storage.local.set({ [STORAGE_KEY]: forms });
+      }
+      return pruned;
+    } catch (e) {
+      console.error('FormVault: Quota pruning failed', e);
+      return 0;
     }
-
-    if (pruned > 0) {
-      await chrome.storage.local.set({ [STORAGE_KEY]: forms });
-    }
-    return pruned;
   }
 
   /**
@@ -159,15 +185,26 @@ const FormVaultStorage = (() => {
    * @returns {Promise<Object>} Storage usage stats
    */
   async function getStorageInfo() {
-    const bytesUsed = await chrome.storage.local.getBytesInUse(null);
-    const forms = await getAllForms();
-    return {
-      bytesUsed,
-      maxBytes: MAX_BYTES,
-      percentUsed: (bytesUsed / MAX_BYTES) * 100,
-      nearQuota: bytesUsed >= MAX_BYTES * QUOTA_WARNING_THRESHOLD,
-      formCount: Object.keys(forms).length
-    };
+    try {
+      const bytesUsed = await chrome.storage.local.getBytesInUse(null);
+      const forms = await getAllForms();
+      return {
+        bytesUsed,
+        maxBytes: MAX_BYTES,
+        percentUsed: (bytesUsed / MAX_BYTES) * 100,
+        nearQuota: bytesUsed >= MAX_BYTES * QUOTA_WARNING_THRESHOLD,
+        formCount: Object.keys(forms).length
+      };
+    } catch (e) {
+      console.error('FormVault: Failed to get storage info', e);
+      return {
+        bytesUsed: 0,
+        maxBytes: MAX_BYTES,
+        percentUsed: 0,
+        nearQuota: false,
+        formCount: 0
+      };
+    }
   }
 
   /**
@@ -194,8 +231,13 @@ const FormVaultStorage = (() => {
    * @returns {Promise<Object>} User settings
    */
   async function getSettings() {
-    const result = await chrome.storage.local.get(SETTINGS_KEY);
-    return { ...DEFAULT_SETTINGS, ...(result[SETTINGS_KEY] || {}) };
+    try {
+      const result = await chrome.storage.local.get(SETTINGS_KEY);
+      return { ...DEFAULT_SETTINGS, ...(result[SETTINGS_KEY] || {}) };
+    } catch (e) {
+      console.error('FormVault: Failed to read settings', e);
+      return { ...DEFAULT_SETTINGS };
+    }
   }
 
   /**
@@ -204,14 +246,19 @@ const FormVaultStorage = (() => {
    * @returns {Promise<void>}
    */
   async function saveSettings(settings) {
-    const current = await getSettings();
-    await chrome.storage.local.set({
-      [SETTINGS_KEY]: { ...current, ...settings }
-    });
+    try {
+      const current = await getSettings();
+      await chrome.storage.local.set({
+        [SETTINGS_KEY]: { ...current, ...settings }
+      });
+    } catch (e) {
+      console.error('FormVault: Failed to save settings', e);
+    }
   }
 
   /**
-   * Check if a domain is blocklisted
+   * Check if a domain is blocklisted.
+   * Uses exact match or subdomain match (not substring).
    * @param {string} domain - The domain to check
    * @returns {Promise<boolean>} True if blocklisted
    */
@@ -222,7 +269,10 @@ const FormVaultStorage = (() => {
       .split(',')
       .map(d => d.trim().toLowerCase())
       .filter(d => d.length > 0);
-    return blocklist.some(blocked => domain.toLowerCase().includes(blocked));
+    const lowerDomain = domain.toLowerCase();
+    return blocklist.some(blocked =>
+      lowerDomain === blocked || lowerDomain.endsWith('.' + blocked)
+    );
   }
 
   return {

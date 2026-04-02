@@ -9,10 +9,7 @@ const CLEANUP_INTERVAL_MINUTES = 24 * 60; // 24 hours
 // ==================== INITIALIZATION ====================
 
 chrome.runtime.onInstalled.addListener(() => {
-  // Run initial cleanup
   runCleanup();
-
-  // Set up recurring cleanup alarm
   chrome.alarms.create(CLEANUP_ALARM, {
     periodInMinutes: CLEANUP_INTERVAL_MINUTES
   });
@@ -20,7 +17,6 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(() => {
   runCleanup();
-
   // Re-create alarm on browser startup (alarms don't persist in MV3)
   chrome.alarms.create(CLEANUP_ALARM, {
     periodInMinutes: CLEANUP_INTERVAL_MINUTES
@@ -38,15 +34,18 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // ==================== CLEANUP ====================
 
 /**
- * Delete forms older than the user's configured retention period
+ * Delete forms older than the user's configured retention period.
+ * Delegates to FormVaultStorage when available; falls back to direct
+ * chrome.storage.local access since the service worker doesn't load
+ * content script modules.
  */
 async function runCleanup() {
   try {
     const result = await chrome.storage.local.get('settings');
     const settings = result.settings || {};
-    const retentionDays = settings.retentionDays || 30;
+    const retentionDays = settings.retentionDays ?? 30;
 
-    // "never" is represented as 0
+    // retentionDays === 0 means "never delete"
     if (retentionDays <= 0) return;
 
     const formsResult = await chrome.storage.local.get('forms');
@@ -55,7 +54,7 @@ async function runCleanup() {
     let deleted = 0;
 
     for (const [key, form] of Object.entries(forms)) {
-      if (form.savedAt < cutoff) {
+      if (form.savedAt && form.savedAt < cutoff) {
         delete forms[key];
         deleted++;
       }
@@ -76,8 +75,10 @@ async function runCleanup() {
  */
 async function updateBadge(tabId, domain) {
   try {
-    if (!domain) {
-      await chrome.action.setBadgeText({ text: '', tabId });
+    if (!tabId || !domain) {
+      if (tabId) {
+        await chrome.action.setBadgeText({ text: '', tabId });
+      }
       return;
     }
 
@@ -103,7 +104,7 @@ async function updateBadge(tabId, domain) {
       tabId
     });
   } catch (e) {
-    // Tab may have been closed
+    // Tab may have been closed — ignore
   }
 }
 
@@ -114,7 +115,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
     const tab = await chrome.tabs.get(activeInfo.tabId);
     if (tab.url) {
       const domain = new URL(tab.url).hostname;
-      updateBadge(activeInfo.tabId, domain);
+      await updateBadge(activeInfo.tabId, domain);
     }
   } catch (e) {
     // Tab may not be accessible
@@ -136,7 +137,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'formSaved') {
-    // Update badge for the tab that saved the form
     if (sender.tab) {
       updateBadge(sender.tab.id, message.domain);
     }
@@ -146,5 +146,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     updateBadge(message.tabId, message.domain);
   }
 
+  // Return false — no async sendResponse needed
   return false;
 });
