@@ -465,17 +465,17 @@
     circle.setAttribute('cx', '16');
     circle.setAttribute('cy', '16');
     circle.setAttribute('r', '15');
-    circle.setAttribute('fill', '#22c55e');
+    circle.setAttribute('fill', '#3b82f6');
     circle.setAttribute('opacity', '0.15');
 
     const path1 = document.createElementNS(svgNS, 'path');
     path1.setAttribute('d', 'M16 4L7 8.5V15C7 21.1 10.8 26.7 16 28.3C21.2 26.7 25 21.1 25 15V8.5L16 4Z');
-    path1.setAttribute('fill', '#22c55e');
+    path1.setAttribute('fill', '#3b82f6');
     path1.setAttribute('opacity', '0.3');
 
     const path2 = document.createElementNS(svgNS, 'path');
     path2.setAttribute('d', 'M16 6L9 9.8V15C9 20.1 12.2 24.8 16 26.2C19.8 24.8 23 20.1 23 15V9.8L16 6Z');
-    path2.setAttribute('fill', '#22c55e');
+    path2.setAttribute('fill', '#3b82f6');
 
     const check = document.createElementNS(svgNS, 'path');
     check.setAttribute('d', 'M13 16L15 18L19.5 13.5');

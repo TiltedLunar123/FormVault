@@ -100,7 +100,7 @@ async function updateBadge(tabId, domain) {
       tabId
     });
     await chrome.action.setBadgeBackgroundColor({
-      color: '#22c55e',
+      color: '#3b82f6',
       tabId
     });
   } catch (e) {
