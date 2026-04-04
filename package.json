@@ -1,6 +1,6 @@
 {
   "name": "formvault",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Auto-save and restore web form data locally. Chrome extension that protects your form inputs from page crashes, refreshes, and accidental navigation. 100% private — zero network requests.",
   "private": true,
   "scripts": {

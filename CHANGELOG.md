@@ -2,6 +2,17 @@
 
 All notable changes to FormVault are documented here.
 
+## [1.2.0] — 2026-04-04
+
+### Added
+- Screenshots of popup, settings, and restore toast embedded in README
+- CONTRIBUTING.md with dev setup, PR guidelines, and areas needing help
+- CHANGELOG.md for version history
+- GitHub issue templates (bug report, feature request) and PR template
+
+### Improved
+- README overhauled with centered header, badge row, and "How It Works" table
+
 ## [1.1.0] — 2026-04-01
 
 ### Fixed
