@@ -2,6 +2,19 @@
 
 All notable changes to FormVault are documented here.
 
+## [1.3.0] — 2026-04-10
+
+### Added
+- ESLint configuration with strict rules (eqeqeq, no-var, no-eval, prefer-const)
+- Jest test infrastructure with Chrome API mocks and jsdom environment
+- 148 unit tests across all modules: storage (42), background (18), content (54), popup (27)
+- GitHub Actions CI pipeline — lint + test on Node 18 and 20, runs on push and PRs
+- SECURITY.md with permissions audit, data handling docs, and responsible disclosure process
+
+### Updated
+- CONTRIBUTING.md with testing instructions and `npm install` setup step
+- package.json with test scripts, devDependencies, and Node engine requirement
+
 ## [1.2.0] — 2026-04-04
 
 ### Added

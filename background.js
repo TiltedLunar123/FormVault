@@ -3,6 +3,7 @@
  * Handles cleanup scheduling, badge updates, and message routing.
  */
 
+/* eslint-disable no-implicit-globals */
 const CLEANUP_ALARM = 'formvault-cleanup';
 const CLEANUP_INTERVAL_MINUTES = 24 * 60; // 24 hours
 

@@ -3,6 +3,7 @@
  * All data stored in chrome.storage.local. Zero network requests.
  */
 
+/* eslint-disable no-implicit-globals */
 const FormVaultStorage = (() => {
   const STORAGE_KEY = 'forms';
   const SETTINGS_KEY = 'settings';
