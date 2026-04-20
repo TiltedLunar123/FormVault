@@ -139,7 +139,7 @@ const FormVaultStorage = (() => {
     let deleted = 0;
 
     for (const [key, form] of Object.entries(forms)) {
-      if (form.savedAt < cutoff) {
+      if (!form.savedAt || form.savedAt < cutoff) {
         delete forms[key];
         deleted++;
       }
