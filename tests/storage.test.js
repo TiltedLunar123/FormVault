@@ -251,6 +251,25 @@ describe('pruneOldForms', () => {
     expect(deleted).toBe(0);
   });
 
+  test('deletes forms with missing savedAt as stale', async () => {
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+
+    await chrome.storage.local.set({
+      forms: {
+        'no-timestamp': { url: 'https://legacy.com' },
+        'fresh': { url: 'https://new.com', savedAt: now - (1 * oneDay) }
+      }
+    });
+
+    const deleted = await FormVaultStorage.pruneOldForms(7);
+    expect(deleted).toBe(1);
+
+    const stored = await chrome.storage.local.get('forms');
+    expect(stored.forms['no-timestamp']).toBeUndefined();
+    expect(stored.forms.fresh).toBeDefined();
+  });
+
   test('returns 0 when days is 0 (never delete)', async () => {
     const deleted = await FormVaultStorage.pruneOldForms(0);
     expect(deleted).toBe(0);
