@@ -54,7 +54,7 @@ beforeAll(() => {
     body + '\n' +
     'return { generatePageKey, isSensitiveField, getUniqueSelector, getXPath, ' +
     'getFieldLabel, getFieldValue, isValidFaviconUrl, findFormFields, ' +
-    'isTrackableField, timeAgo, collectFormData };'
+    'isTrackableField, timeAgo, collectFormData, notifyBackground };'
   );
 
   contentFns = wrapper();
@@ -532,5 +532,69 @@ describe('findFormFields', () => {
     expect(fields).toContain(div);
 
     div.remove();
+  });
+});
+
+// ==================== notifyBackground ====================
+
+describe('notifyBackground', () => {
+  let warnSpy;
+
+  beforeEach(() => {
+    chrome.runtime.sendMessage = jest.fn();
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  test('forwards the message to chrome.runtime.sendMessage', () => {
+    chrome.runtime.sendMessage.mockResolvedValue(undefined);
+    contentFns.notifyBackground({ action: 'formSaved', domain: 'example.com' });
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+      action: 'formSaved',
+      domain: 'example.com'
+    });
+  });
+
+  test('stays quiet when receiving end is gone', async () => {
+    chrome.runtime.sendMessage.mockRejectedValue(
+      new Error('Could not establish connection. Receiving end does not exist.')
+    );
+    contentFns.notifyBackground({ action: 'formSaved' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test('stays quiet when extension context is invalidated', async () => {
+    chrome.runtime.sendMessage.mockRejectedValue(
+      new Error('Extension context invalidated.')
+    );
+    contentFns.notifyBackground({ action: 'formSaved' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test('logs unexpected rejections so a broken background is visible', async () => {
+    chrome.runtime.sendMessage.mockRejectedValue(new Error('boom: handler threw'));
+    contentFns.notifyBackground({ action: 'formSaved' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(warnSpy).toHaveBeenCalled();
+    expect(warnSpy.mock.calls[0][0]).toMatch(/sendMessage failed/);
+  });
+
+  test('handles synchronous throws without crashing the caller', () => {
+    chrome.runtime.sendMessage.mockImplementation(() => {
+      throw new Error('boom: sync');
+    });
+    expect(() => contentFns.notifyBackground({ action: 'formSaved' })).not.toThrow();
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  test('tolerates a non-promise return value', () => {
+    chrome.runtime.sendMessage.mockReturnValue(undefined);
+    expect(() => contentFns.notifyBackground({ action: 'formSaved' })).not.toThrow();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });

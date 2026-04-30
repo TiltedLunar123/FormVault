@@ -42,6 +42,30 @@
     ? CSS.escape.bind(CSS)
     : (str) => String(str).replace(/([^\w-])/g, '\\$1');
 
+  // ==================== BACKGROUND MESSAGING ====================
+
+  // Disconnect-style errors (worker not ready, page closing, extension reload)
+  // are normal and stay quiet. Anything else means the background script is
+  // misbehaving — log it so a broken worker isn't masked.
+  const DISCONNECT_RE = /Receiving end does not exist|Could not establish connection|Extension context invalidated/i;
+
+  function notifyBackground(message) {
+    try {
+      const p = chrome.runtime.sendMessage(message);
+      if (p && typeof p.catch === 'function') {
+        p.catch(err => {
+          const msg = (err && err.message) || String(err);
+          if (DISCONNECT_RE.test(msg)) return;
+          console.warn('FormVault: background sendMessage failed', err);
+        });
+      }
+    } catch (err) {
+      const msg = (err && err.message) || String(err);
+      if (DISCONNECT_RE.test(msg)) return;
+      console.warn('FormVault: background sendMessage threw', err);
+    }
+  }
+
   // ==================== PAGE KEY GENERATION ====================
 
   /**
@@ -311,12 +335,10 @@
     try {
       await FormVaultStorage.saveForm(pageKey, formData);
 
-      // Notify background for badge update
-      chrome.runtime.sendMessage({
+      // Notify background for badge update.
+      notifyBackground({
         action: 'formSaved',
         domain: window.location.hostname
-      }).catch(() => {
-        // Background may not be ready
       });
     } catch (e) {
       console.error('FormVault: Error saving form data', e);
