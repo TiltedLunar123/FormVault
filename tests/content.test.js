@@ -54,7 +54,7 @@ beforeAll(() => {
     body + '\n' +
     'return { generatePageKey, isSensitiveField, getUniqueSelector, getXPath, ' +
     'getFieldLabel, getFieldValue, isValidFaviconUrl, findFormFields, ' +
-    'isTrackableField, timeAgo, collectFormData, notifyBackground };'
+    'isTrackableField, timeAgo, collectFormData, notifyBackground, isSafeXPath };'
   );
 
   contentFns = wrapper();
@@ -629,5 +629,51 @@ describe('notifyBackground', () => {
     chrome.runtime.sendMessage.mockReturnValue(undefined);
     expect(() => contentFns.notifyBackground({ action: 'formSaved' })).not.toThrow();
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ==================== isSafeXPath ====================
+
+describe('isSafeXPath', () => {
+  test.each([
+    '/html[1]/body[1]/div[2]/form[1]/input[3]',
+    '/html[1]',
+    '/div[1]/input[10]',
+    '/x-tag[1]/input[2]'
+  ])('accepts well-formed xpath: %s', (xp) => {
+    expect(contentFns.isSafeXPath(xp)).toBe(true);
+  });
+
+  test.each([
+    '',
+    '/',
+    'html[1]/body[1]',
+    '//div[1]',
+    '/html[1]//div[2]',
+    '/html[1]/body[1]/text()[1]',
+    '/html[1]/*[1]',
+    "/html[1]/body[contains(@class,'x')]",
+    '/html[1]/body[1] | /html[1]/head[1]',
+    '/html[1]/body[0]',
+    '/html[01]/body[1]',
+    '/HTML[1]/body[1]',
+    '/html[1]/body[1]/script[1]'.repeat(200)
+  ])('rejects unsafe xpath: %s', (xp) => {
+    expect(contentFns.isSafeXPath(xp)).toBe(false);
+  });
+
+  test('matches the shape getXPath produces', () => {
+    document.body.innerHTML = '<form><div><input id="t"></div></form>';
+    const input = document.getElementById('t');
+    const xp = contentFns.getXPath(input);
+    expect(contentFns.isSafeXPath(xp)).toBe(true);
+    document.body.innerHTML = '';
+  });
+
+  test('rejects non-string input', () => {
+    expect(contentFns.isSafeXPath(null)).toBe(false);
+    expect(contentFns.isSafeXPath(undefined)).toBe(false);
+    expect(contentFns.isSafeXPath(123)).toBe(false);
+    expect(contentFns.isSafeXPath({})).toBe(false);
   });
 });

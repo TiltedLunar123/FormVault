@@ -177,6 +177,17 @@
     return '/' + parts.join('/');
   }
 
+  // Defense in depth: only evaluate XPaths that match the shape getXPath()
+  // produces. If local storage is tampered with, this stops attacker-controlled
+  // expressions from being handed to document.evaluate().
+  // Shape: leading "/", then one or more "tag[N]" segments joined by "/",
+  // where tag is alpha-numeric-hyphen and N is a positive integer.
+  const SAFE_XPATH_RE = /^(\/[a-z][a-z0-9-]*\[[1-9][0-9]*\])+$/;
+
+  function isSafeXPath(xpath) {
+    return typeof xpath === 'string' && xpath.length > 0 && xpath.length <= 4096 && SAFE_XPATH_RE.test(xpath);
+  }
+
   /**
    * Extract human-readable label for a field
    */
@@ -437,8 +448,9 @@
              document.getElementById(fieldData.name);
       }
 
-      // Try XPath as last resort
-      if (!el && fieldData.xpath) {
+      // Try XPath as last resort (only if it matches the conservative
+      // shape getXPath() produces — guards against tampered storage)
+      if (!el && fieldData.xpath && isSafeXPath(fieldData.xpath)) {
         try {
           const result = document.evaluate(
             fieldData.xpath, document, null,
