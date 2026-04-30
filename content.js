@@ -71,6 +71,9 @@
   /**
    * Generate a stable page key from the current URL.
    * Keeps all query params except known volatile ones (tracking, analytics).
+   * Folds in hash-based routes so SPAs that route through "#/foo" don't
+   * collide with siblings under the same path. Plain anchor jumps
+   * ("#section") are ignored so a single page stays one key.
    */
   function generatePageKey() {
     const url = new URL(window.location.href);
@@ -84,7 +87,16 @@
 
     params.sort();
     const paramStr = params.toString();
-    return url.origin + url.pathname + (paramStr ? '?' + paramStr : '');
+    const hashPart = isRouteHash(url.hash) ? url.hash : '';
+    return url.origin + url.pathname + (paramStr ? '?' + paramStr : '') + hashPart;
+  }
+
+  // Treat "#/foo", "#!/foo", and "#foo/bar" as routes; "#section" is just
+  // an in-page anchor and shouldn't change the page key.
+  function isRouteHash(hash) {
+    if (!hash || hash.length <= 1) return false;
+    if (hash.startsWith('#/') || hash.startsWith('#!/')) return true;
+    return hash.indexOf('/', 1) > 0;
   }
 
   // ==================== FIELD DETECTION & IDENTIFICATION ====================

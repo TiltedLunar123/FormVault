@@ -105,6 +105,39 @@ describe('generatePageKey', () => {
     setLocation('https://example.com/page?utm_source=x&utm_medium=y');
     expect(contentFns.generatePageKey()).toBe('https://example.com/page');
   });
+
+  test('includes hash route for hash-based SPA routing', () => {
+    setLocation('https://example.com/app#/users/42/edit');
+    expect(contentFns.generatePageKey()).toBe('https://example.com/app#/users/42/edit');
+  });
+
+  test('distinguishes sibling hash routes under the same path', () => {
+    setLocation('https://example.com/#/form1');
+    const k1 = contentFns.generatePageKey();
+    setLocation('https://example.com/#/form2');
+    const k2 = contentFns.generatePageKey();
+    expect(k1).not.toBe(k2);
+  });
+
+  test('handles hashbang routing (#!/route)', () => {
+    setLocation('https://example.com/#!/dashboard');
+    expect(contentFns.generatePageKey()).toBe('https://example.com/#!/dashboard');
+  });
+
+  test('treats plain anchor fragments as the same page', () => {
+    setLocation('https://example.com/page#section');
+    expect(contentFns.generatePageKey()).toBe('https://example.com/page');
+  });
+
+  test('treats empty hash like no hash', () => {
+    setLocation('https://example.com/page#');
+    expect(contentFns.generatePageKey()).toBe('https://example.com/page');
+  });
+
+  test('keeps query params and hash route together', () => {
+    setLocation('https://example.com/app?step=2#/wizard/3');
+    expect(contentFns.generatePageKey()).toBe('https://example.com/app?step=2#/wizard/3');
+  });
 });
 
 // ==================== isSensitiveField ====================
