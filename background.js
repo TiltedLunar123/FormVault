@@ -1,5 +1,5 @@
 /**
- * FormVault — Background Service Worker
+ * FormVault: Background Service Worker
  * Handles cleanup scheduling, badge updates, and message routing.
  */
 
@@ -105,7 +105,7 @@ async function updateBadge(tabId, domain) {
       tabId
     });
   } catch (e) {
-    // Tab may have been closed — ignore
+    // Tab may have been closed, ignore
   }
 }
 
@@ -147,6 +147,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     updateBadge(message.tabId, message.domain);
   }
 
-  // Return false — no async sendResponse needed
+  // Return false, no async sendResponse needed
   return false;
 });

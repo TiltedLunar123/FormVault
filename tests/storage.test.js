@@ -1,11 +1,11 @@
 /**
- * FormVault — Storage Module Tests
+ * FormVault: Storage Module Tests
  */
 
 const fs = require('fs');
 const path = require('path');
 
-// Load storage module — it assigns FormVaultStorage to the global scope
+// Load storage module, it assigns FormVaultStorage to the global scope
 const storageSource = fs.readFileSync(
   path.resolve(__dirname, '..', 'utils', 'storage.js'),
   'utf-8'

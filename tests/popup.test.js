@@ -1,5 +1,5 @@
 /**
- * FormVault — Popup Utility Function Tests
+ * FormVault: Popup Utility Function Tests
  */
 
 const fs = require('fs');

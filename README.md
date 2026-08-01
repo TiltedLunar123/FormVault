@@ -2,25 +2,13 @@
   <img src="icons/icon128.png" alt="FormVault" width="80" />
 </p>
 
-<h1 align="center">FormVault</h1>
+# FormVault
 
-<p align="center">
-  <strong>Your forms, always safe.</strong><br>
-  Auto-save and restore web form data locally - no accounts, no cloud, no data ever leaving your browser.
-</p>
+A Chrome extension that saves what you type into web forms, locally, so a crash or a
+stray back button does not eat twenty minutes of work.
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
-  <a href="https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3"><img src="https://img.shields.io/badge/Manifest-V3-blue.svg" alt="Chrome Manifest V3"></a>
-  <img src="https://img.shields.io/badge/Privacy-100%25_Local-22c55e.svg" alt="Privacy: 100% Local">
-  <img src="https://img.shields.io/badge/Network_Requests-Zero-22c55e.svg" alt="Network Requests: Zero">
-</p>
-
----
-
-Ever lost a long form submission to a page crash, accidental refresh, or back-button mishap? FormVault silently saves your form inputs as you type and offers one-click restore when you return - entirely offline, with zero data leaving your machine.
-
-<br>
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg)](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3)
 
 <p align="center">
   <img src="screenshots/popup-main.png" alt="FormVault popup showing saved forms with search, field preview, and restore actions" width="340" />
@@ -32,86 +20,109 @@ Ever lost a long form submission to a page crash, accidental refresh, or back-bu
   <img src="screenshots/restore-toast.png" alt="FormVault restore toast appearing on a web form, offering to restore 5 saved fields" width="550" />
 </p>
 
-## Features
+## How it works
 
-- **Auto-Save** - Saves form data every 3 seconds after your last keystroke, no manual action needed
-- **One-Click Restore** - Non-intrusive toast notification offers instant recovery when revisiting a page
-- **React & SPA Compatible** - MutationObserver detects dynamically added fields; native value setters work with React controlled components
-- **Privacy-First** - 100% local storage, zero network requests, zero analytics, zero telemetry
-- **Sensitive Field Detection** - Automatically skips passwords, credit card numbers, SSNs, and other sensitive inputs
-- **Search & Browse** - Full-text search across all saved forms by title, URL, or field content
-- **Configurable Retention** - Auto-delete after 7, 30, or 90 days (or keep forever)
-- **Domain Blocklist** - Exclude specific domains from auto-saving (banking sites blocked by default)
-- **Shadow DOM Isolation** - All injected UI is fully isolated from host page styles
-- **Storage Management** - Automatic quota checks with smart pruning of oldest entries when storage runs low
-- **Live Updates** - Popup refreshes in real-time when forms are saved from other tabs
+You type. Three seconds after you stop, the field values on the page get written to
+`chrome.storage.local` under a key derived from the URL. Volatile query parameters like
+UTM tags are stripped when building that key and form-identifying ones are kept, so the
+save survives a refresh but does not leak across unrelated pages.
 
-## Installation
+Come back to that page later and a toast offers to put the values back. Fields are
+matched by CSS selector first, then `name`, then an XPath fallback, because any one of
+those alone breaks on a real site.
 
-1. Clone or download this repository:
-   ```bash
-   git clone https://github.com/TiltedLunar123/FormVault.git
-   ```
-2. Open Chrome and go to `chrome://extensions/`
-3. Enable **Developer mode** (toggle in the top-right corner)
-4. Click **Load unpacked** and select the `FormVault` folder
-5. The green shield icon will appear in your toolbar - you're all set
+Saves are also flushed on `beforeunload` and `visibilitychange`, which is what catches
+the tab you close without thinking about it. A background alarm prunes expired entries
+once a day.
 
-## How It Works
+Two things that took the longest to get right:
 
-| Step | What happens |
-|------|-------------|
-| **Auto-save** | When you type in any form field, FormVault debounces your input and saves all non-sensitive field data to `chrome.storage.local` after 3 seconds of inactivity. |
-| **Page key** | Each page gets a stable key derived from its URL (volatile query params like UTM tags are stripped, form-identifying params are kept) so saves persist across refreshes. |
-| **Restore toast** | When you revisit a page with saved data, a Shadow DOM-isolated toast appears offering one-click restore. Fields are matched by CSS selector, `name` attribute, or XPath fallback. |
-| **Flush on exit** | Data is flushed immediately on `beforeunload` and `visibilitychange` to prevent loss when closing a tab or switching away. |
-| **Cleanup** | A background alarm prunes expired entries every 24 hours based on your retention setting. |
+**Dynamic forms.** A MutationObserver picks up fields added after page load, and writes
+go through the native value setter rather than assigning to `.value`, which is the only
+way React controlled components notice the change at all.
 
-## Project Structure
+**Not interfering with the page.** The restore toast lives in a closed shadow root, so
+the host page cannot style it and it cannot style the host page.
 
-```
-FormVault/
-├── manifest.json        # Extension manifest (MV3)
-├── background.js        # Service worker - cleanup scheduling, badge updates
-├── content.js           # Content script - form detection, auto-save, restore toast
-├── popup.html           # Extension popup UI
-├── popup.js             # Popup logic - form list, search, settings
-├── popup.css            # Popup styles (dark theme)
-├── privacy.html         # Privacy policy page
-├── utils/
-│   └── storage.js       # Shared storage helpers (CRUD, settings, quota management)
-├── icons/
-│   ├── icon16.png
-│   ├── icon48.png
-│   └── icon128.png
-└── screenshots/         # README images
-```
+## What it will not save
+
+Anything matching the sensitive-field pattern is skipped before it ever reaches storage:
+passwords, SSNs, card numbers, CVV, expiry, routing and account numbers, PINs. Fields
+declaring an `autocomplete` of `cc-*`, `new-password` or `current-password` are skipped
+on that basis too, regardless of what they are named.
+
+On top of that, the content script is not injected at all on twelve financial and
+government domains: Bank of America, Chase, Wells Fargo, Citi, US Bank, Capital One,
+PayPal, Venmo, Stripe, IRS, SSA and login.gov. That is an `exclude_matches` list in the
+manifest, so it is not a check the extension could get wrong at runtime. It never loads
+there.
+
+The user blocklist is a third, separate thing, and it starts empty. Add whatever else
+you want skipped under Settings.
 
 ## Privacy
 
-FormVault is built with privacy as a core principle:
+FormVault sends nothing anywhere. There is no fetch, no XMLHttpRequest, no remote
+script, no analytics and no telemetry in the source, and your form data stays in
+`chrome.storage.local` on your machine.
 
-- All data is stored locally using `chrome.storage.local`
-- The extension makes **zero network requests** - no fetch, no XMLHttpRequest, no external scripts
-- No analytics, no tracking, no telemetry of any kind
-- Sensitive fields (passwords, credit cards, SSNs) are never saved
-- Banking and financial sites are excluded by default
-- User-configurable domain blocklist for additional control
+One honest caveat, because "zero network requests" is not quite true and I would rather
+say so than have you find it in DevTools: the popup lists each saved form with the
+site's favicon, and it does that by pointing an `<img>` at the icon URL. Opening the
+popup therefore makes your browser fetch those icons from sites you have already
+visited. No data of yours goes out with it, and no third party is involved, but it is a
+request and it is caused by this extension. Tracked in
+[#17](https://github.com/TiltedLunar123/FormVault/issues/17); the fix is to inline the
+icons at save time.
 
-See the full [privacy policy](privacy.html).
+Full text in [privacy.html](privacy.html).
 
-## Roadmap
+## Settings
 
-- [ ] **iframe Support** - Save and restore form data inside iframes
-- [ ] **Cross-Browser Port** - Firefox (Manifest V3) and Edge compatibility
-- [ ] **Export / Import** - Export saved forms as JSON for backup and migration
-- [ ] **Per-Site Settings** - Fine-grained control over which sites to auto-save
-- [ ] **Keyboard Shortcuts** - Quick restore via configurable hotkey
+Retention is 7, 30, or 90 days, or never delete. Default is 30. Auto-save and the
+restore toast can each be switched off. The blocklist takes a comma-separated list of
+domains.
 
-## Contributing
+When storage runs low the oldest entries get pruned automatically rather than saves
+starting to fail silently.
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+## Install
 
-## License
+Not on the Web Store yet, so load it unpacked:
 
-[MIT](LICENSE)
+```bash
+git clone https://github.com/TiltedLunar123/FormVault.git
+```
+
+Then open `chrome://extensions/`, turn on Developer mode, click Load unpacked, and pick
+the folder. The green shield shows up in the toolbar.
+
+## Layout
+
+```
+manifest.json     MV3 manifest
+background.js     service worker: cleanup alarm, badge counts
+content.js        form detection, auto-save, restore toast
+popup.html/js/css the popup
+utils/storage.js  storage helpers, settings, quota handling
+privacy.html      privacy policy
+```
+
+## Tests
+
+```bash
+npm install
+npm test
+```
+
+Jest with a mocked `chrome` API, covering the storage helpers, the popup logic, the
+content script's field detection, and the service worker.
+
+## Still to do
+
+Firefox and Edge ports are the main one. After that, saving inside iframes, JSON
+export for backup, and per-site settings instead of one global blocklist.
+
+## Licence
+
+[MIT](LICENSE).

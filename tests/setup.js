@@ -1,5 +1,5 @@
 /**
- * FormVault — Test Setup
+ * FormVault: Test Setup
  * Chrome API mocks for Jest test environment.
  */
 

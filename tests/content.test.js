@@ -1,5 +1,5 @@
 /**
- * FormVault — Content Script Tests
+ * FormVault: Content Script Tests
  * Tests pure functions extracted from the content script IIFE.
  */
 

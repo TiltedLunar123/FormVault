@@ -1,5 +1,5 @@
 /**
- * FormVault — Background Service Worker Tests
+ * FormVault: Background Service Worker Tests
  */
 
 const fs = require('fs');
@@ -14,7 +14,7 @@ let listeners;
 
 beforeAll(() => {
   global.__resetAllChromeMocks();
-  // Evaluate background.js — it registers Chrome listeners at module scope
+  // Evaluate background.js, it registers Chrome listeners at module scope
   const fn = new Function(backgroundSource);
   fn();
 

@@ -12,12 +12,12 @@ FormVault requests the minimum Chrome permissions needed to function:
 | `activeTab` | Update the badge count for the current tab's domain |
 | `alarms` | Schedule daily cleanup of expired form entries |
 
-**No host permissions** are requested. The content script runs on `<all_urls>` but has no elevated access — it only reads form field values from the page DOM.
+**No host permissions** are requested. The content script runs on `<all_urls>` but has no elevated access, it only reads form field values from the page DOM.
 
 ## Data Handling
 
-- **100% local storage.** All form data is stored in `chrome.storage.local`. Nothing is sent over the network — ever.
-- **Zero network requests.** FormVault makes no HTTP requests, no analytics calls, no telemetry, no phone-home. You can verify this in Chrome DevTools → Network tab.
+- **100% local storage.** All form data is stored in `chrome.storage.local`. Nothing is sent over the network, ever.
+- **No data leaves the machine.** FormVault makes no analytics calls, no telemetry and no phone-home, and none of your saved form data is transmitted anywhere. The one request it does cause is the popup loading each site's own favicon by URL, which you will see in the DevTools Network tab; see [#17](https://github.com/TiltedLunar123/FormVault/issues/17) for the fix.
 - **No remote code.** All JavaScript is bundled with the extension. No CDN scripts, no dynamic imports.
 
 ## Sensitive Field Protection
@@ -41,7 +41,7 @@ Users can add additional domains to the blocklist in extension settings.
 ## DOM Security
 
 - The restore toast UI is rendered inside a **closed Shadow DOM** to prevent style leaks and DOM access from the host page.
-- All DOM elements are created with `document.createElement` and `textContent` — **no `innerHTML`** is used anywhere, preventing XSS.
+- All DOM elements are created with `document.createElement` and `textContent`, **no `innerHTML`** is used anywhere, preventing XSS.
 - Favicon URLs are validated to only allow `http:` and `https:` protocols before rendering.
 
 ## Quota Management

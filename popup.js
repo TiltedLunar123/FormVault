@@ -1,5 +1,5 @@
 /**
- * FormVault — Popup Script
+ * FormVault: Popup Script
  * Handles the extension popup UI: form list, search, settings, and actions.
  */
 
@@ -401,7 +401,7 @@
     if (!form.fields || form.fields.length === 0) return false;
 
     const lines = [
-      'FormVault — ' + (form.title || 'Untitled'),
+      'FormVault, ' + (form.title || 'Untitled'),
       'URL: ' + (form.url || ''),
       '---'
     ];

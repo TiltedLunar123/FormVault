@@ -1,71 +1,56 @@
-# Contributing to FormVault
-
-Thanks for your interest in contributing! Here's how to get started.
-
-## Getting Started
-
-1. Fork the repository
-2. Clone your fork:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/FormVault.git
-   cd FormVault
-   npm install
-   ```
-3. Load the extension in Chrome:
-   - Go to `chrome://extensions/`
-   - Enable **Developer mode**
-   - Click **Load unpacked** and select the project folder
-4. Make your changes and test them locally
-
-## Development Notes
-
-- **No build step** — FormVault is vanilla JS with no bundler, transpiler, or framework. Edit files and reload the extension.
-- **Manifest V3** — The extension uses Chrome's Manifest V3 with a service worker (`background.js`) instead of a persistent background page.
-- **Shadow DOM** — The restore toast is rendered inside a closed Shadow DOM to prevent style leaks. Keep any injected UI isolated.
-- **Zero runtime dependencies** — There are no npm runtime dependencies. Dev dependencies (ESLint, Jest) are for linting and testing only.
-
-## Testing
-
-Run tests before submitting a PR:
+# Contributing
 
 ```bash
-npm install        # Install dev dependencies (first time only)
-npm test           # Run all tests
-npm run lint       # Check code style
-npm run test:ci    # Run tests with coverage report
+git clone https://github.com/YOUR_USERNAME/FormVault.git
+cd FormVault
+npm install
 ```
 
-When adding new functionality, add corresponding tests in the `tests/` directory. Tests use Jest with jsdom for DOM simulation and mock Chrome APIs defined in `tests/setup.js`.
+Then load it: `chrome://extensions/`, Developer mode on, Load unpacked, pick the folder.
+Reload the extension from that page after each edit.
 
-## What to Work On
+There is no build step. It is vanilla JS, no bundler and no framework, and there are no
+runtime dependencies at all. ESLint and Jest are dev dependencies and that is the whole
+list. I would like to keep it that way, so if a change needs a new dependency, open an
+issue about it first.
 
-Check the [roadmap in the README](README.md#roadmap) for planned features. Issues labeled `good first issue` are a great starting point.
+## Two things to be careful with
 
-Some areas where help is appreciated:
+The restore toast lives in a **closed shadow root**. That is what stops the host page
+from styling it and stops it from styling the host page. Any UI you inject should go in
+there too, and if you find yourself reaching outside it, that is usually a sign the
+approach is wrong.
 
-- **Cross-browser support** — Porting to Firefox and Edge
-- **iframe support** — Saving/restoring fields inside iframes
-- **Test coverage** — Unit tests for `storage.js` and integration tests for content script behavior
-- **Accessibility** — Improving keyboard navigation and screen reader support in the popup and toast
+Writes to form fields go through the **native value setter**, not `element.value = x`.
+React controlled components do not notice a plain assignment, so a change that looks
+fine on a static HTML form will silently do nothing on half the real web. There is a
+helper for this already; use it.
 
-## Pull Request Guidelines
+## Tests
 
-1. **Keep PRs focused** — One feature or fix per PR.
-2. **Test manually** — Load the extension, verify your change works on a real form, and check the popup.
-3. **Follow existing style** — Match the code style you see in the project (single quotes, 2-space indentation, `'use strict'`).
-4. **Update the README** if your change adds or modifies user-facing behavior.
-5. **No new dependencies** unless absolutely necessary and discussed in an issue first.
+```bash
+npm test           # jest
+npm run lint       # eslint
+npm run test:ci    # with coverage
+```
 
-## Reporting Bugs
+Jest with jsdom, and the `chrome` API is mocked in `tests/setup.js`. If you add
+behaviour, add a test next to the existing ones.
 
-Open an issue with:
+## Style
 
-- What you expected to happen
-- What actually happened
-- Steps to reproduce
-- Chrome version and OS
-- Console errors (if any) from `chrome://extensions/` → FormVault → "Inspect views"
+Single quotes, two-space indent, `'use strict'`. One thing per pull request. Test it
+against a real form in the browser, not just in jest, because jsdom will happily let
+through things that break on an actual page. Update the README if you changed something
+a user would notice.
 
-## Code of Conduct
+## Bugs
 
-Be respectful, constructive, and inclusive. We're all here to make a useful tool better.
+Open an issue with what you expected, what happened, and how to reproduce it. Include
+your Chrome version and OS. If there is anything in the console, get it from
+`chrome://extensions/` then FormVault then "Inspect views", since the service worker
+and the content script log to different places and the interesting error is usually in
+whichever one you did not check.
+
+Sites that break restore are worth reporting even without a diagnosis. Field matching
+is the fragile part and I collect the cases that beat it.

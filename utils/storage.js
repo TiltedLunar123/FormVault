@@ -1,5 +1,5 @@
 /**
- * FormVault — Shared Storage Helpers
+ * FormVault: Shared Storage Helpers
  * All data stored in chrome.storage.local. Zero network requests.
  */
 

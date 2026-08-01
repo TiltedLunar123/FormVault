@@ -1,5 +1,5 @@
 /**
- * FormVault — Content Script
+ * FormVault: Content Script
  * Injected into all pages. Handles form detection, auto-save, and restore toast.
  * Uses Shadow DOM for all injected UI to prevent style conflicts.
  */
@@ -19,7 +19,7 @@
     'date', 'datetime-local', 'month', 'week', 'time'
   ]);
 
-  // Sensitive field patterns — never save these
+  // Sensitive field patterns, never save these
   const SENSITIVE_PATTERNS = /password|passwd|pwd|ssn|social.?security|cc[-_]?num|card[-_]?number|cvv|cvc|ccv|credit.?card|expir|routing.?number|account.?number|pin[-_]?code/i;
   const SENSITIVE_AUTOCOMPLETE = new Set([
     'cc-number', 'cc-exp', 'cc-exp-month', 'cc-exp-year',
@@ -324,7 +324,7 @@
   }
 
   /**
-   * Debounced save — resets timer on every input
+   * Debounced save, resets timer on every input
    */
   function debouncedSave() {
     if (debounceTimer) clearTimeout(debounceTimer);
@@ -332,7 +332,7 @@
   }
 
   /**
-   * Immediate save — flush pending debounce and save now.
+   * Immediate save, flush pending debounce and save now.
    * Used on beforeunload / visibilitychange to prevent data loss.
    */
   function flushSave() {
@@ -848,7 +848,7 @@
 
       if (savedData && savedData.fields.length > 0) {
         const retentionDays = settings.retentionDays;
-        // retentionDays === 0 means "never delete" — always show toast
+        // retentionDays === 0 means "never delete", always show toast
         if (retentionDays === 0) {
           setTimeout(() => showRestoreToast(savedData), 1000);
         } else {
