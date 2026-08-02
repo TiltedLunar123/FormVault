@@ -54,7 +54,7 @@ beforeAll(() => {
     body + '\n' +
     'return { generatePageKey, isSensitiveField, getUniqueSelector, getXPath, ' +
     'getFieldLabel, getFieldValue, isValidFaviconUrl, findFormFields, ' +
-    'isTrackableField, timeAgo, collectFormData };'
+    'isTrackableField, timeAgo, collectFormData, notifyBackground, isSafeXPath };'
   );
 
   contentFns = wrapper();
@@ -104,6 +104,39 @@ describe('generatePageKey', () => {
   test('omits query string when all params are stripped', () => {
     setLocation('https://example.com/page?utm_source=x&utm_medium=y');
     expect(contentFns.generatePageKey()).toBe('https://example.com/page');
+  });
+
+  test('includes hash route for hash-based SPA routing', () => {
+    setLocation('https://example.com/app#/users/42/edit');
+    expect(contentFns.generatePageKey()).toBe('https://example.com/app#/users/42/edit');
+  });
+
+  test('distinguishes sibling hash routes under the same path', () => {
+    setLocation('https://example.com/#/form1');
+    const k1 = contentFns.generatePageKey();
+    setLocation('https://example.com/#/form2');
+    const k2 = contentFns.generatePageKey();
+    expect(k1).not.toBe(k2);
+  });
+
+  test('handles hashbang routing (#!/route)', () => {
+    setLocation('https://example.com/#!/dashboard');
+    expect(contentFns.generatePageKey()).toBe('https://example.com/#!/dashboard');
+  });
+
+  test('treats plain anchor fragments as the same page', () => {
+    setLocation('https://example.com/page#section');
+    expect(contentFns.generatePageKey()).toBe('https://example.com/page');
+  });
+
+  test('treats empty hash like no hash', () => {
+    setLocation('https://example.com/page#');
+    expect(contentFns.generatePageKey()).toBe('https://example.com/page');
+  });
+
+  test('keeps query params and hash route together', () => {
+    setLocation('https://example.com/app?step=2#/wizard/3');
+    expect(contentFns.generatePageKey()).toBe('https://example.com/app?step=2#/wizard/3');
   });
 });
 
@@ -532,5 +565,115 @@ describe('findFormFields', () => {
     expect(fields).toContain(div);
 
     div.remove();
+  });
+});
+
+// ==================== notifyBackground ====================
+
+describe('notifyBackground', () => {
+  let warnSpy;
+
+  beforeEach(() => {
+    chrome.runtime.sendMessage = jest.fn();
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  test('forwards the message to chrome.runtime.sendMessage', () => {
+    chrome.runtime.sendMessage.mockResolvedValue(undefined);
+    contentFns.notifyBackground({ action: 'formSaved', domain: 'example.com' });
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+      action: 'formSaved',
+      domain: 'example.com'
+    });
+  });
+
+  test('stays quiet when receiving end is gone', async () => {
+    chrome.runtime.sendMessage.mockRejectedValue(
+      new Error('Could not establish connection. Receiving end does not exist.')
+    );
+    contentFns.notifyBackground({ action: 'formSaved' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test('stays quiet when extension context is invalidated', async () => {
+    chrome.runtime.sendMessage.mockRejectedValue(
+      new Error('Extension context invalidated.')
+    );
+    contentFns.notifyBackground({ action: 'formSaved' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test('logs unexpected rejections so a broken background is visible', async () => {
+    chrome.runtime.sendMessage.mockRejectedValue(new Error('boom: handler threw'));
+    contentFns.notifyBackground({ action: 'formSaved' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(warnSpy).toHaveBeenCalled();
+    expect(warnSpy.mock.calls[0][0]).toMatch(/sendMessage failed/);
+  });
+
+  test('handles synchronous throws without crashing the caller', () => {
+    chrome.runtime.sendMessage.mockImplementation(() => {
+      throw new Error('boom: sync');
+    });
+    expect(() => contentFns.notifyBackground({ action: 'formSaved' })).not.toThrow();
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  test('tolerates a non-promise return value', () => {
+    chrome.runtime.sendMessage.mockReturnValue(undefined);
+    expect(() => contentFns.notifyBackground({ action: 'formSaved' })).not.toThrow();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ==================== isSafeXPath ====================
+
+describe('isSafeXPath', () => {
+  test.each([
+    '/html[1]/body[1]/div[2]/form[1]/input[3]',
+    '/html[1]',
+    '/div[1]/input[10]',
+    '/x-tag[1]/input[2]'
+  ])('accepts well-formed xpath: %s', (xp) => {
+    expect(contentFns.isSafeXPath(xp)).toBe(true);
+  });
+
+  test.each([
+    '',
+    '/',
+    'html[1]/body[1]',
+    '//div[1]',
+    '/html[1]//div[2]',
+    '/html[1]/body[1]/text()[1]',
+    '/html[1]/*[1]',
+    "/html[1]/body[contains(@class,'x')]",
+    '/html[1]/body[1] | /html[1]/head[1]',
+    '/html[1]/body[0]',
+    '/html[01]/body[1]',
+    '/HTML[1]/body[1]',
+    '/html[1]/body[1]/script[1]'.repeat(200)
+  ])('rejects unsafe xpath: %s', (xp) => {
+    expect(contentFns.isSafeXPath(xp)).toBe(false);
+  });
+
+  test('matches the shape getXPath produces', () => {
+    document.body.innerHTML = '<form><div><input id="t"></div></form>';
+    const input = document.getElementById('t');
+    const xp = contentFns.getXPath(input);
+    expect(contentFns.isSafeXPath(xp)).toBe(true);
+    document.body.innerHTML = '';
+  });
+
+  test('rejects non-string input', () => {
+    expect(contentFns.isSafeXPath(null)).toBe(false);
+    expect(contentFns.isSafeXPath(undefined)).toBe(false);
+    expect(contentFns.isSafeXPath(123)).toBe(false);
+    expect(contentFns.isSafeXPath({})).toBe(false);
   });
 });

@@ -42,11 +42,38 @@
     ? CSS.escape.bind(CSS)
     : (str) => String(str).replace(/([^\w-])/g, '\\$1');
 
+  // ==================== BACKGROUND MESSAGING ====================
+
+  // Disconnect-style errors (worker not ready, page closing, extension reload)
+  // are normal and stay quiet. Anything else means the background script is
+  // misbehaving — log it so a broken worker isn't masked.
+  const DISCONNECT_RE = /Receiving end does not exist|Could not establish connection|Extension context invalidated/i;
+
+  function notifyBackground(message) {
+    try {
+      const p = chrome.runtime.sendMessage(message);
+      if (p && typeof p.catch === 'function') {
+        p.catch(err => {
+          const msg = (err && err.message) || String(err);
+          if (DISCONNECT_RE.test(msg)) return;
+          console.warn('FormVault: background sendMessage failed', err);
+        });
+      }
+    } catch (err) {
+      const msg = (err && err.message) || String(err);
+      if (DISCONNECT_RE.test(msg)) return;
+      console.warn('FormVault: background sendMessage threw', err);
+    }
+  }
+
   // ==================== PAGE KEY GENERATION ====================
 
   /**
    * Generate a stable page key from the current URL.
    * Keeps all query params except known volatile ones (tracking, analytics).
+   * Folds in hash-based routes so SPAs that route through "#/foo" don't
+   * collide with siblings under the same path. Plain anchor jumps
+   * ("#section") are ignored so a single page stays one key.
    */
   function generatePageKey() {
     const url = new URL(window.location.href);
@@ -60,7 +87,16 @@
 
     params.sort();
     const paramStr = params.toString();
-    return url.origin + url.pathname + (paramStr ? '?' + paramStr : '');
+    const hashPart = isRouteHash(url.hash) ? url.hash : '';
+    return url.origin + url.pathname + (paramStr ? '?' + paramStr : '') + hashPart;
+  }
+
+  // Treat "#/foo", "#!/foo", and "#foo/bar" as routes; "#section" is just
+  // an in-page anchor and shouldn't change the page key.
+  function isRouteHash(hash) {
+    if (!hash || hash.length <= 1) return false;
+    if (hash.startsWith('#/') || hash.startsWith('#!/')) return true;
+    return hash.indexOf('/', 1) > 0;
   }
 
   // ==================== FIELD DETECTION & IDENTIFICATION ====================
@@ -139,6 +175,17 @@
       current = current.parentElement;
     }
     return '/' + parts.join('/');
+  }
+
+  // Defense in depth: only evaluate XPaths that match the shape getXPath()
+  // produces. If local storage is tampered with, this stops attacker-controlled
+  // expressions from being handed to document.evaluate().
+  // Shape: leading "/", then one or more "tag[N]" segments joined by "/",
+  // where tag is alpha-numeric-hyphen and N is a positive integer.
+  const SAFE_XPATH_RE = /^(\/[a-z][a-z0-9-]*\[[1-9][0-9]*\])+$/;
+
+  function isSafeXPath(xpath) {
+    return typeof xpath === 'string' && xpath.length > 0 && xpath.length <= 4096 && SAFE_XPATH_RE.test(xpath);
   }
 
   /**
@@ -311,12 +358,10 @@
     try {
       await FormVaultStorage.saveForm(pageKey, formData);
 
-      // Notify background for badge update
-      chrome.runtime.sendMessage({
+      // Notify background for badge update.
+      notifyBackground({
         action: 'formSaved',
         domain: window.location.hostname
-      }).catch(() => {
-        // Background may not be ready
       });
     } catch (e) {
       console.error('FormVault: Error saving form data', e);
@@ -403,8 +448,9 @@
              document.getElementById(fieldData.name);
       }
 
-      // Try XPath as last resort
-      if (!el && fieldData.xpath) {
+      // Try XPath as last resort (only if it matches the conservative
+      // shape getXPath() produces — guards against tampered storage)
+      if (!el && fieldData.xpath && isSafeXPath(fieldData.xpath)) {
         try {
           const result = document.evaluate(
             fieldData.xpath, document, null,

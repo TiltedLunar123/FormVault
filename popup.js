@@ -327,7 +327,7 @@
       const raw = elements.blocklistInput.value;
       const domains = raw.split(',')
         .map(d => d.trim().toLowerCase())
-        .filter(d => d.length > 0 && /^[\w.-]+$/.test(d));
+        .filter(isValidDomain);
       const cleaned = [...new Set(domains)].join(', ');
       elements.blocklistInput.value = cleaned;
       saveSetting('blocklist', cleaned);
@@ -366,6 +366,16 @@
   }
 
   // ==================== UTILITIES ====================
+
+  // Each label: starts/ends with alphanumeric, may contain hyphens, max 63 chars.
+  // At least two labels (so a single token like "localhost" or "...." is rejected).
+  // TLD is letters only, 2+ chars.
+  function isValidDomain(input) {
+    if (typeof input !== 'string') return false;
+    const d = input.trim().toLowerCase();
+    if (d.length === 0 || d.length > 253) return false;
+    return /^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/.test(d);
+  }
 
   function truncate(str, maxLen) {
     if (!str) return '';

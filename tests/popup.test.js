@@ -79,7 +79,7 @@ beforeAll(() => {
 
   const wrapper = new Function(
     body + '\n' +
-    'return { truncate, truncateUrl, timeAgo, copyFormData, updateFormCount };'
+    'return { truncate, truncateUrl, timeAgo, copyFormData, updateFormCount, isValidDomain };'
   );
 
   popupFns = wrapper();
@@ -274,5 +274,58 @@ describe('updateFormCount', () => {
     document.getElementById('searchInput').value = 'test';
     popupFns.updateFormCount(1);
     expect(document.getElementById('formCount').textContent).toBe('1 result');
+  });
+});
+
+// ==================== isValidDomain ====================
+
+describe('isValidDomain', () => {
+  test.each([
+    'example.com',
+    'sub.example.com',
+    'a.b.c.example.com',
+    'foo-bar.example.co.uk',
+    'xn--bcher-kva.example',
+    '1-2-3.example.com'
+  ])('accepts %s', (d) => {
+    expect(popupFns.isValidDomain(d)).toBe(true);
+  });
+
+  test.each([
+    '',
+    '   ',
+    '....',
+    '___',
+    '---.---',
+    'localhost',
+    'example',
+    '.example.com',
+    'example.com.',
+    '-example.com',
+    'example-.com',
+    'exa mple.com',
+    'example.c',
+    'example.123',
+    'http://example.com',
+    'example.com/path'
+  ])('rejects %s', (d) => {
+    expect(popupFns.isValidDomain(d)).toBe(false);
+  });
+
+  test('rejects non-string input', () => {
+    expect(popupFns.isValidDomain(null)).toBe(false);
+    expect(popupFns.isValidDomain(undefined)).toBe(false);
+    expect(popupFns.isValidDomain(123)).toBe(false);
+  });
+
+  test('trims whitespace and is case-insensitive', () => {
+    expect(popupFns.isValidDomain('  Example.COM  ')).toBe(true);
+  });
+
+  test('rejects total length over 253 chars', () => {
+    const label = 'a'.repeat(60);
+    const huge = (label + '.').repeat(5) + 'com';
+    expect(huge.length).toBeGreaterThan(253);
+    expect(popupFns.isValidDomain(huge)).toBe(false);
   });
 });
