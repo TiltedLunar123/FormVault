@@ -327,7 +327,7 @@
       const raw = elements.blocklistInput.value;
       const domains = raw.split(',')
         .map(d => d.trim().toLowerCase())
-        .filter(d => d.length > 0 && /^[\w.-]+$/.test(d));
+        .filter(d => d.length > 0 && /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(d));
       const cleaned = [...new Set(domains)].join(', ');
       elements.blocklistInput.value = cleaned;
       saveSetting('blocklist', cleaned);

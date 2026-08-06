@@ -54,7 +54,7 @@ beforeAll(() => {
     body + '\n' +
     'return { generatePageKey, isSensitiveField, getUniqueSelector, getXPath, ' +
     'getFieldLabel, getFieldValue, isValidFaviconUrl, findFormFields, ' +
-    'isTrackableField, timeAgo, collectFormData };'
+    'isTrackableField, timeAgo, collectFormData, restoreFields };'
   );
 
   contentFns = wrapper();
@@ -532,5 +532,58 @@ describe('findFormFields', () => {
     expect(fields).toContain(div);
 
     div.remove();
+  });
+});
+
+// ==================== restoreFields (XPath validation) ====================
+
+describe('restoreFields', () => {
+  test('restores field via valid XPath when selector and name miss', () => {
+    const input = document.createElement('input');
+    input.type = 'text';
+    document.body.appendChild(input);
+
+    const xpath = contentFns.getXPath(input);
+    const restored = contentFns.restoreFields([{
+      selector: '#nonexistent',
+      name: '',
+      xpath: xpath,
+      type: 'text',
+      value: 'restored-value'
+    }]);
+
+    expect(restored).toBe(1);
+    expect(input.value).toBe('restored-value');
+    input.remove();
+  });
+
+  test('rejects malicious XPath expressions', () => {
+    const input = document.createElement('input');
+    input.type = 'text';
+    document.body.appendChild(input);
+
+    const restored = contentFns.restoreFields([{
+      selector: '#nonexistent',
+      name: '',
+      xpath: 'string(//input[@type="password"])',
+      type: 'text',
+      value: 'should-not-restore'
+    }]);
+
+    expect(restored).toBe(0);
+    expect(input.value).toBe('');
+    input.remove();
+  });
+
+  test('rejects XPath with function calls', () => {
+    const restored = contentFns.restoreFields([{
+      selector: '#nonexistent',
+      name: '',
+      xpath: 'count(//input)',
+      type: 'text',
+      value: 'nope'
+    }]);
+
+    expect(restored).toBe(0);
   });
 });

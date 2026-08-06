@@ -311,12 +311,14 @@
     try {
       await FormVaultStorage.saveForm(pageKey, formData);
 
-      // Notify background for badge update
       chrome.runtime.sendMessage({
         action: 'formSaved',
         domain: window.location.hostname
-      }).catch(() => {
-        // Background may not be ready
+      }).catch(err => {
+        const msg = err && err.message || '';
+        if (!msg.includes('Receiving end does not exist')) {
+          console.warn('FormVault: badge update failed', msg);
+        }
       });
     } catch (e) {
       console.error('FormVault: Error saving form data', e);
@@ -403,8 +405,7 @@
              document.getElementById(fieldData.name);
       }
 
-      // Try XPath as last resort
-      if (!el && fieldData.xpath) {
+      if (!el && fieldData.xpath && /^(\/[a-z][a-z0-9]*(\[\d+\])?)+$/i.test(fieldData.xpath)) {
         try {
           const result = document.evaluate(
             fieldData.xpath, document, null,
