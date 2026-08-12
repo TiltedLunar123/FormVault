@@ -69,7 +69,7 @@ script, no analytics and no telemetry in the source, and your form data stays in
 One honest caveat, because "zero network requests" is not quite true and I would rather
 say so than have you find it in DevTools: the popup lists each saved form with the
 site's favicon, and it does that by pointing an `<img>` at the icon URL. Opening the
-popup therefore makes your browser fetch those icons from sites you have already
+popup makes your browser fetch those icons from sites you have already
 visited. No data of yours goes out with it, and no third party is involved, but it is a
 request and it is caused by this extension. Tracked in
 [#17](https://github.com/TiltedLunar123/FormVault/issues/17); the fix is to inline the
